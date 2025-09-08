@@ -1,8 +1,11 @@
 package std
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"golang.org/x/term"
 )
@@ -99,4 +102,86 @@ func CreateTestStdio(content string) (*os.File, func()) {
 	}
 
 	return f, cleanup
+}
+
+// atomicWriteFile writes data to path atomically. It:
+//   - ensures parent directory exists,
+//   - writes to a temp file in the same directory,
+//   - fsyncs the file,
+//   - renames the temp file to the final path (atomic on POSIX),
+//   - fsyncs the parent directory (best-effort).
+//
+// perm is the file mode to use for the final file (e.g. 0644).
+func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+
+	// Ensure parent directory exists.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("atomic write: mkdirall %q: %w", dir, err)
+	}
+
+	// Create temp file in same dir so rename is atomic on same filesystem.
+	tmpFile, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+".*")
+	if err != nil {
+		return fmt.Errorf("atomic write: create temp file: %w", err)
+	}
+	tmpName := tmpFile.Name()
+
+	// If anything goes wrong, try to remove the temp file.
+	cleanup := func() {
+		_ = os.Remove(tmpName)
+	}
+
+	// Write data.
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return fmt.Errorf("atomic write: write temp file %q: %w", tmpName, err)
+	}
+
+	// Sync to storage.
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return fmt.Errorf("atomic write: sync temp file %q: %w", tmpName, err)
+	}
+
+	// Close file before renaming.
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("atomic write: close temp file %q: %w", tmpName, err)
+	}
+
+	// Set final permissions (rename preserves perms on many systems, but ensure).
+	if err := os.Chmod(tmpName, perm); err != nil {
+		// Not fatal: attempt rename anyway, but record error if rename fails.
+		// We don't return here because chmod may fail on platforms with different semantics.
+	}
+
+	// Rename into place (atomic on POSIX when same fs).
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
+		return fmt.Errorf("atomic write: rename %q -> %q: %w", tmpName, path, err)
+	}
+
+	// Best-effort sync of parent directory so directory entry is durable.
+	// Skip on Windows (no reliable dir fsync semantics there).
+	if err := syncDir(dir); err != nil && runtime.GOOS != "windows" {
+		// Directory sync failure is important on POSIX; report it.
+		return fmt.Errorf("atomic write: sync dir %q: %w", dir, err)
+	}
+
+	return nil
+}
+
+// syncDir opens dir and calls Sync on it so directory metadata (the rename)
+// is flushed. Returns error from Open or Sync.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	// On Unix, File.Sync on a directory will fsync the directory.
+	return d.Sync()
 }

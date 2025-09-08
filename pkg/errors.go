@@ -3,5 +3,5 @@ package std
 import "errors"
 
 var (
-	ErrNoEnv = errors.New("env key missing")
+	ErrNoEnvKey = errors.New("env key missing")
 )

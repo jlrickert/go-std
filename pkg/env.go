@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"os/user"
+	"path/filepath"
+	"runtime"
 )
 
 // Env is a small, descriptive interface for reading and modifying
@@ -143,6 +145,55 @@ func (m *MapEnv) Unset(key string) {
 			delete(m.data, key)
 		}
 	}
+}
+
+// NewTestEnv constructs a MapEnv populated with sensible defaults for tests.
+// It sets HOME and USER and also sets platform-specific variables so functions
+// that prefer XDG_* (Unix) or APPDATA/LOCALAPPDATA (Windows) will pick them up.
+//
+// If home or username are empty, reasonable defaults are chosen:
+//   - home defaults to os.TempDir()/go-std-test-home
+//   - username defaults to "testuser"
+//
+// The function does not create any directories on disk; it only sets the
+// environment values in the returned MapEnv.
+func NewTestEnv(home, username string) *MapEnv {
+	if home == "" {
+		home = filepath.Join(os.TempDir(), "go-std-test-home")
+	}
+	if username == "" {
+		username = "testuser"
+	}
+
+	m := &MapEnv{
+		home: home,
+		user: username,
+		data: make(map[string]string),
+	}
+
+	// Always expose HOME and USER through the map as well for callers that read via Get.
+	m.data["HOME"] = home
+	m.data["USER"] = username
+
+	if runtime.GOOS == "windows" {
+		// Windows conventions: APPDATA (Roaming) and LOCALAPPDATA (Local)
+		appdata := filepath.Join(home, "AppData", "Roaming")
+		local := filepath.Join(home, "AppData", "Local")
+		m.data["APPDATA"] = appdata
+		m.data["LOCALAPPDATA"] = local
+	} else {
+		// Unix-like conventions: XDG_* fallbacks under the home directory.
+		xdgConfig := filepath.Join(home, ".config")
+		xdgCache := filepath.Join(home, ".cache")
+		xdgData := filepath.Join(home, ".local", "share")
+		xdgState := filepath.Join(home, ".local", "state")
+		m.data["XDG_CONFIG_HOME"] = xdgConfig
+		m.data["XDG_CACHE_HOME"] = xdgCache
+		m.data["XDG_DATA_HOME"] = xdgData
+		m.data["XDG_STATE_HOME"] = xdgState
+	}
+
+	return m
 }
 
 // GetDefault returns the value of key from the provided Env if present
