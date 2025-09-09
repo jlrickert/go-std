@@ -1,6 +1,7 @@
 package std
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -55,3 +56,21 @@ func (c *TestClock) Set(t time.Time) {
 
 var _ Clock = (*OsClock)(nil)
 var _ Clock = (*TestClock)(nil)
+
+var ctxClockKey ctxKeyType
+
+func ContextWithClock(ctx context.Context, clock Clock) context.Context {
+	return context.WithValue(ctx, ctxClockKey, clock)
+}
+
+func ClockFromContext(ctx context.Context) Clock {
+	if ctx == nil {
+		return &OsClock{}
+	}
+	if v := ctx.Value(ctxEnvKey); v != nil {
+		if clock, ok := v.(Clock); ok && clock != nil {
+			return clock
+		}
+	}
+	return &OsClock{}
+}

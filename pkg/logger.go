@@ -102,21 +102,21 @@ func NewDiscardLogger() *slog.Logger {
 // ctxKeyType is an unexported type used as the context key to avoid collisions.
 type ctxKeyType struct{}
 
-var ctxKey ctxKeyType
+var ctxLoggerKey ctxKeyType
 
 // ContextWithLogger returns a copy of ctx that carries the provided logger.
 // Use this to associate a logger with a context for downstream callers.
 func ContextWithLogger(ctx context.Context, lg *slog.Logger) context.Context {
-	return context.WithValue(ctx, ctxKey, lg)
+	return context.WithValue(ctx, ctxLoggerKey, lg)
 }
 
-// FromContext returns the logger stored in ctx. If ctx is nil or does not
+// LoggerFromContext returns the logger stored in ctx. If ctx is nil or does not
 // contain a logger, slog.Default() is returned.
-func FromContext(ctx context.Context) *slog.Logger {
+func LoggerFromContext(ctx context.Context) *slog.Logger {
 	if ctx == nil {
 		return slog.Default()
 	}
-	if v := ctx.Value(ctxKey); v != nil {
+	if v := ctx.Value(ctxLoggerKey); v != nil {
 		if lg, ok := v.(*slog.Logger); ok && lg != nil {
 			return lg
 		}
@@ -128,7 +128,7 @@ func FromContext(ctx context.Context) *slog.Logger {
 // stored on the context, the provided fallback is returned. If fallback is
 // nil, slog.Default() is returned.
 func GetLogger(ctx context.Context, fallback *slog.Logger) *slog.Logger {
-	if lg := FromContext(ctx); lg != nil {
+	if lg := LoggerFromContext(ctx); lg != nil {
 		return lg
 	}
 	if fallback != nil {

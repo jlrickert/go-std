@@ -1,6 +1,7 @@
 package std
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/user"
@@ -17,7 +18,7 @@ type Env interface {
 	Get(key string) string
 
 	// Set assigns the environment key to value.
-	Set(key, value string)
+	Set(key, value string) error
 
 	// Unset removes the environment key.
 	Unset(key string)
@@ -26,9 +27,15 @@ type Env interface {
 	// return an error if the value is not available.
 	GetHome() (string, error)
 
+	// SetHome sets the user's home directory in the environment.
+	SetHome(home string) error
+
 	// GetUser returns the current user's username. Implementations should
 	// return an error if the value is not available.
 	GetUser() (string, error)
+
+	// SetUser sets the current user's username in the environment.
+	SetUser(user string) error
 }
 
 // OsEnv implements Env by delegating to the real process environment.
@@ -38,6 +45,18 @@ type OsEnv struct{}
 // GetHome implements Env by returning the OS-reported user home directory.
 func (o *OsEnv) GetHome() (string, error) {
 	return os.UserHomeDir()
+}
+
+// SetHome implements Env by setting environment values that represent the
+// user's home directory. On Unix-like systems this sets HOME. On Windows it
+// sets HOME and USERPROFILE to keep common consumers satisfied.
+func (o *OsEnv) SetHome(home string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.Setenv("USERPROFILE", home); err != nil {
+			return err
+		}
+	}
+	return os.Setenv("HOME", home)
 }
 
 // GetUser implements Env by returning the current OS user username.
@@ -53,14 +72,26 @@ func (o *OsEnv) GetUser() (string, error) {
 	return u.Name, nil
 }
 
+// SetUser implements Env by setting environment values that represent the
+// current user. On Unix-like systems this sets USER. On Windows it sets both
+// USER and USERNAME to maximize compatibility.
+func (o *OsEnv) SetUser(username string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.Setenv("USERNAME", username); err != nil {
+			return err
+		}
+	}
+	return os.Setenv("USER", username)
+}
+
 // Get returns the environment variable for key.
 func (o *OsEnv) Get(key string) string {
 	return os.Getenv(key)
 }
 
 // Set implements Env by setting the OS environment variable.
-func (o *OsEnv) Set(key string, value string) {
-	os.Setenv(key, value)
+func (o *OsEnv) Set(key string, value string) error {
+	return os.Setenv(key, value)
 }
 
 // Unset implements Env by unsetting the OS environment variable.
@@ -102,6 +133,20 @@ func (m *MapEnv) GetHome() (string, error) {
 	return m.home, nil
 }
 
+// SetHome sets the MapEnv's home directory and updates the "HOME" key in
+// the underlying map for callers that use Get.
+func (m *MapEnv) SetHome(home string) error {
+	if m == nil {
+		return errors.New("nil MapEnv")
+	}
+	m.home = home
+	if m.data == nil {
+		m.data = make(map[string]string)
+	}
+	m.data["HOME"] = home
+	return nil
+}
+
 // GetUser implements Env. Returns an error if user is not set.
 func (m *MapEnv) GetUser() (string, error) {
 	if m == nil || m.user == "" {
@@ -110,23 +155,41 @@ func (m *MapEnv) GetUser() (string, error) {
 	return m.user, nil
 }
 
+// SetUser sets the MapEnv's current user and updates the "USER" key in
+// the underlying map for callers that use Get.
+func (m *MapEnv) SetUser(username string) error {
+	if m == nil {
+		return errors.New("nil MapEnv")
+	}
+	m.user = username
+	if m.data == nil {
+		m.data = make(map[string]string)
+	}
+	m.data["USER"] = username
+	return nil
+}
+
 // Set implements Env. If key is "HOME" or "USER" the corresponding field
 // is updated, otherwise the value is stored in the internal map.
-func (m *MapEnv) Set(key string, value string) {
+func (m *MapEnv) Set(key string, value string) error {
 	if m == nil {
-		return
+		// Preserve the original behavior of making a new MapEnv when Set is
+		// called on a nil receiver. However, since we cannot mutate the
+		// caller's nil pointer here, return an error to indicate misuse.
+		return errors.New("nil MapEnv")
 	}
 	switch key {
 	case "HOME":
-		m.home = value
+		return m.SetHome(value)
 	case "USER":
-		m.user = value
+		return m.SetUser(value)
 	default:
 		if m.data == nil {
 			m.data = make(map[string]string)
 		}
 		m.data[key] = value
 	}
+	return nil
 }
 
 // Unset implements Env. If key is "HOME" or "USER" the corresponding field
@@ -138,8 +201,14 @@ func (m *MapEnv) Unset(key string) {
 	switch key {
 	case "HOME":
 		m.home = ""
+		if m.data != nil {
+			delete(m.data, "HOME")
+		}
 	case "USER":
 		m.user = ""
+		if m.data != nil {
+			delete(m.data, "USER")
+		}
 	default:
 		if m.data != nil {
 			delete(m.data, key)
@@ -158,11 +227,11 @@ func (m *MapEnv) Unset(key string) {
 // The function does not create any directories on disk; it only sets the
 // environment values in the returned MapEnv.
 func NewTestEnv(home, username string) *MapEnv {
-	if home == "" {
-		home = filepath.Join(os.TempDir(), "go-std-test-home")
-	}
 	if username == "" {
 		username = "testuser"
+	}
+	if home == "" {
+		home = filepath.Join(os.TempDir(), "home", username)
 	}
 
 	m := &MapEnv{
@@ -209,6 +278,31 @@ func GetDefault(env Env, key, other string) string {
 	return other
 }
 
+func ExpandEnv(env Env, s string) string {
+	if env == nil {
+		env = &OsEnv{}
+	}
+	return os.Expand(s, env.Get)
+}
+
 // Ensure implementations satisfy the interfaces.
 var _ Env = (*OsEnv)(nil)
 var _ Env = (*MapEnv)(nil)
+
+var ctxEnvKey ctxKeyType
+
+func ContextWithEnv(ctx context.Context, env Env) context.Context {
+	return context.WithValue(ctx, ctxEnvKey, env)
+}
+
+func EnvFromContext(ctx context.Context) Env {
+	if ctx == nil {
+		return &OsEnv{}
+	}
+	if v := ctx.Value(ctxEnvKey); v != nil {
+		if env, ok := v.(Env); ok && env != nil {
+			return env
+		}
+	}
+	return &OsEnv{}
+}

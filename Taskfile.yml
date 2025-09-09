@@ -1,0 +1,11 @@
+# https://taskfile.dev
+
+version: "3"
+tasks:
+  run: go run "./cmd/keg"
+  test:
+    cmds:
+      - go test ./pkg
+    sources:
+      - pkg/*.go
+    silent: true
