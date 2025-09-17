@@ -1,8 +1,8 @@
 package std
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 )
@@ -30,16 +30,17 @@ import (
 //   - The function returns the raw directory value as used by the platform.
 //     It does not always append appName — callers should append the
 //     application-specific subdirectory if desired.
-func UserConfigPath(appName string, env Env) (string, error) {
+func UserConfigPath(ctx context.Context) (string, error) {
+	env := EnvFromContext(ctx)
 	// Prefer explicit XDG_CONFIG_HOME on Unix-like systems (read from real env)
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return x, nil
+	if xdg := env.Get("XDG_CONFIG_HOME"); xdg != "" {
+		return xdg, nil
 	}
 	// Prefer APPDATA on Windows (read via injected env for testability)
 	if app := env.Get("APPDATA"); app != "" {
 		return app, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := env.GetHome()
 	if err != nil {
 		return "", err
 	}
@@ -57,14 +58,15 @@ func UserConfigPath(appName string, env Env) (string, error) {
 //
 // As with UserConfigPath, the returned path is the base cache directory;
 // append appName if you want an application-specific subdirectory.
-func UserCachePath(appName string, env Env) (string, error) {
+func UserCachePath(ctx context.Context, appName string) (string, error) {
+	env := EnvFromContext(ctx)
 	if x := env.Get("XDG_CACHE_HOME"); x != "" {
 		return x, nil
 	}
 	if local := env.Get("LOCALAPPDATA"); local != "" {
 		return local, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := env.GetHome()
 	if err != nil {
 		return "", err
 	}
@@ -79,10 +81,11 @@ func UserCachePath(appName string, env Env) (string, error) {
 //     If LOCALAPPDATA is not set, returns an error wrapping ErrNoEnvKey.
 //   - On Unix-like systems: prefers XDG_DATA_HOME if set (appName appended),
 //     otherwise falls back to ~/.local/share/<appName>.
-func UserDataPath(appName string, env Env) (string, error) {
+func UserDataPath(ctx context.Context) (string, error) {
+	env := EnvFromContext(ctx)
 	if runtime.GOOS == "windows" {
 		if localAppData := env.Get("LOCALAPPDATA"); localAppData != "" {
-			return filepath.Join(localAppData, appName, "data"), nil
+			return filepath.Join(localAppData, "data"), nil
 		}
 		// ErrNoEnvKey should be defined elsewhere in this package to indicate
 		// that a required environment key was not present.
@@ -90,13 +93,13 @@ func UserDataPath(appName string, env Env) (string, error) {
 	}
 	// Unix-like: use $XDG_DATA_HOME if available, otherwise fallback to ~/.local/share
 	if xdg := env.Get("XDG_DATA_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName), nil
+		return xdg, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := env.GetHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", appName), nil
+	return filepath.Join(home, ".local", "share"), nil
 }
 
 // UserStatePath returns the directory that should be used to store
@@ -107,20 +110,21 @@ func UserDataPath(appName string, env Env) (string, error) {
 //     If LOCALAPPDATA is not set, returns an error wrapping ErrNoEnvKey.
 //   - On Unix-like systems: prefers XDG_STATE_HOME if set (appName appended),
 //     otherwise falls back to ~/.local/state/<appName>.
-func UserStatePath(appName string, env Env) (string, error) {
+func UserStatePath(ctx context.Context) (string, error) {
+	env := EnvFromContext(ctx)
 	if runtime.GOOS == "windows" {
 		if localAppData := env.Get("LOCALAPPDATA"); localAppData != "" {
-			return filepath.Join(localAppData, appName, "state"), nil
+			return filepath.Join(localAppData, "state"), nil
 		}
 		return "", fmt.Errorf("LOCALAPPDATA environment variable not set: %w", ErrNoEnvKey)
 	}
 	// Unix-like: use $XDG_STATE_HOME if available, otherwise fallback to ~/.local/state
 	if xdg := env.Get("XDG_STATE_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName), nil
+		return xdg, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := env.GetHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", appName), nil
+	return filepath.Join(home, ".local", "state"), nil
 }

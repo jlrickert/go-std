@@ -289,20 +289,25 @@ func ExpandEnv(env Env, s string) string {
 var _ Env = (*OsEnv)(nil)
 var _ Env = (*MapEnv)(nil)
 
-var ctxEnvKey ctxKeyType
+type envCtxKey int
 
-func ContextWithEnv(ctx context.Context, env Env) context.Context {
+var (
+	ctxEnvKey  envCtxKey
+	defaultEnv = &OsEnv{}
+)
+
+func WithEnv(ctx context.Context, env Env) context.Context {
 	return context.WithValue(ctx, ctxEnvKey, env)
 }
 
 func EnvFromContext(ctx context.Context) Env {
 	if ctx == nil {
-		return &OsEnv{}
+		return defaultEnv
 	}
 	if v := ctx.Value(ctxEnvKey); v != nil {
 		if env, ok := v.(Env); ok && env != nil {
 			return env
 		}
 	}
-	return &OsEnv{}
+	return defaultEnv
 }
