@@ -69,9 +69,6 @@ func WithClock(ctx context.Context, clock Clock) context.Context {
 }
 
 func ClockFromContext(ctx context.Context) Clock {
-	if ctx == nil {
-		return defaultClock
-	}
 	if v := ctx.Value(ctxClockKey); v != nil {
 		if clock, ok := v.(Clock); ok && clock != nil {
 			return clock

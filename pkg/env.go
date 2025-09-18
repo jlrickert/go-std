@@ -301,9 +301,6 @@ func WithEnv(ctx context.Context, env Env) context.Context {
 }
 
 func EnvFromContext(ctx context.Context) Env {
-	if ctx == nil {
-		return defaultEnv
-	}
 	if v := ctx.Value(ctxEnvKey); v != nil {
 		if env, ok := v.(Env); ok && env != nil {
 			return env
