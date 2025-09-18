@@ -57,20 +57,25 @@ func (c *TestClock) Set(t time.Time) {
 var _ Clock = (*OsClock)(nil)
 var _ Clock = (*TestClock)(nil)
 
-var ctxClockKey ctxKeyType
+type clockCtxKey int
 
-func ContextWithClock(ctx context.Context, clock Clock) context.Context {
+var (
+	ctxClockKey  clockCtxKey
+	defaultClock = &OsClock{}
+)
+
+func WithClock(ctx context.Context, clock Clock) context.Context {
 	return context.WithValue(ctx, ctxClockKey, clock)
 }
 
 func ClockFromContext(ctx context.Context) Clock {
 	if ctx == nil {
-		return &OsClock{}
+		return defaultClock
 	}
-	if v := ctx.Value(ctxEnvKey); v != nil {
+	if v := ctx.Value(ctxClockKey); v != nil {
 		if clock, ok := v.(Clock); ok && clock != nil {
 			return clock
 		}
 	}
-	return &OsClock{}
+	return defaultClock
 }
