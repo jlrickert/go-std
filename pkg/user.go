@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Package std provides helpers for locating user-specific directories
@@ -19,6 +20,44 @@ import (
 // The env parameter (of type Env) is used to read environment variables
 // in a way that's easy to mock for testing. Some functions may still read
 // certain variables directly from the real environment when appropriate.
+
+// ExpandPath expands a leading tilde in the provided path to the user's home
+// directory obtained from the Env stored in ctx. It supports the forms:
+//
+//	"~"
+//	"~/rest/of/path"
+//	"~\rest\of\path" (Windows)
+//
+// If the home directory cannot be obtained from the environment an error is
+// returned. If the path does not start with a tilde it is returned unchanged.
+func ExpandPath(ctx context.Context, p string) (string, error) {
+	if p == "" {
+		return p, nil
+	}
+	if p[0] != '~' {
+		return p, nil
+	}
+
+	// Only expand the simple leading-tilde forms: "~" or "~/" or "~\"
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		env := EnvFromContext(ctx)
+		home, err := env.GetHome()
+		if err != nil {
+			return "", err
+		}
+		if p == "~" {
+			return home, nil
+		}
+		// Trim the "~/" or "~\" prefix and join with home to produce a
+		// well-formed path.
+		rest := p[2:]
+		return filepath.Join(home, rest), nil
+	}
+
+	// More complex cases like "~username/..." are not supported and are
+	// returned unchanged.
+	return p, nil
+}
 
 // UserConfigPath returns the directory that should be used to store
 // per-user configuration files.

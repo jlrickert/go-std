@@ -43,6 +43,65 @@ func TestUserConfigPath(t *testing.T) {
 	}
 }
 
+func TestExpandPath(t *testing.T) {
+	t.Parallel()
+	t.Run("TildeOnly", func(t *testing.T) {
+		env := std.NewTestEnv("/home/alice", "alice")
+		got, err := std.ExpandPath(std.WithEnv(context.Background(), env), "~")
+		require.NoError(t, err)
+		assert.Equal(t, "/home/alice", got)
+	})
+
+	t.Run("TildeSlash", func(t *testing.T) {
+		env := std.NewTestEnv("/home/alice", "alice")
+		got, err := std.ExpandPath(std.WithEnv(context.Background(), env), "~/project")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("/home/alice", "project"), got)
+	})
+
+	t.Run("NonTildeUnchanged", func(t *testing.T) {
+		env := std.NewTestEnv("/home/alice", "alice")
+		in := "/tmp/some/path"
+		got, err := std.ExpandPath(std.WithEnv(context.Background(), env), in)
+		require.NoError(t, err)
+		assert.Equal(t, in, got)
+	})
+
+	t.Run("EmptyString", func(t *testing.T) {
+		env := std.NewTestEnv("/home/alice", "alice")
+		got, err := std.ExpandPath(std.WithEnv(context.Background(), env), "")
+		require.NoError(t, err)
+		assert.Equal(t, "", got)
+	})
+
+	t.Run("UnsupportedUserFormReturnsUnchanged", func(t *testing.T) {
+		env := std.NewTestEnv("/home/alice", "alice")
+		in := "~bob/project"
+		got, err := std.ExpandPath(std.WithEnv(context.Background(), env), in)
+		require.NoError(t, err)
+		assert.Equal(t, in, got)
+	})
+
+	t.Run("MissingHomeReturnsError", func(t *testing.T) {
+		emptyEnv := &std.MapEnv{}
+		_, err := std.ExpandPath(std.WithEnv(context.Background(), emptyEnv), "~")
+		require.Error(t, err)
+	})
+
+	// Platform-specific test for backslash-prefixed expansion on Windows.
+	if runtime.GOOS == "windows" {
+		t.Run("TildeBackslashWindows", func(t *testing.T) {
+			home := `C:\Users\alice`
+			env := std.NewTestEnv(home, "alice")
+			in := `~\project\sub`
+			got, err := std.ExpandPath(std.WithEnv(context.Background(), env), in)
+			require.NoError(t, err)
+			// Expect the components to be joined using filepath semantics.
+			assert.Equal(t, filepath.Join(home, "project", "sub"), got)
+		})
+	}
+}
+
 func TestUserCachePath(t *testing.T) {
 	// XDG_CACHE_HOME provided by env should be returned.
 	env := std.NewTestEnv("/home/alice", "alice")
