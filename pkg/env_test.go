@@ -1,6 +1,7 @@
 package std_test
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -67,4 +68,50 @@ func TestMapEnvDoesNotChangeOsEnv(t *testing.T) {
 	// Unsetting in the MapEnv should not affect the real OS env either.
 	env.Unset(key)
 	assert.Equal(t, "os-value", os.Getenv(key))
+}
+
+func TestExpandEnv(t *testing.T) {
+	t.Parallel()
+
+	env := std.NewTestEnv("", "")
+	require.NoError(t, env.Set("FOO", "bar"))
+	require.NoError(t, env.Set("EMPTY", ""))
+
+	ctx := std.WithEnv(context.Background(), env)
+
+	// Simple $VAR expansion
+	got := std.ExpandEnv(ctx, "$FOO/baz")
+	assert.Equal(t, "bar/baz", got)
+
+	// Braced form, missing and empty values
+	got2 := std.ExpandEnv(ctx, "${FOO}_${MISSING}_${EMPTY}")
+	assert.Equal(t, "bar__", got2)
+
+	// When no Env is provided in the context, ExpandEnv should fall back to the
+	// real OS environment (OsEnv). Verify by setting a real OS env var.
+	const oskey = "GO_STD_TEST_EXPAND_ENV_OS"
+	orig, ok := os.LookupEnv(oskey)
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(oskey, orig)
+		} else {
+			_ = os.Unsetenv(oskey)
+		}
+	})
+	require.NoError(t, os.Setenv(oskey, "osval"))
+
+	got3 := std.ExpandEnv(context.Background(), "$"+oskey)
+	assert.Equal(t, "osval", got3)
+}
+
+// Tests for working directory handling in MapEnv and OsEnv.
+
+func TestMapEnvGetWdMissing(t *testing.T) {
+	var m std.MapEnv
+	_, err := m.GetWd()
+	require.Error(t, err)
+
+	var mnil *std.MapEnv = nil
+	_, err = mnil.GetWd()
+	require.Error(t, err)
 }

@@ -12,7 +12,9 @@ import (
 // Env is a small, descriptive interface for reading and modifying
 // environment values. Implementations may read from the real process
 // environment (OsEnv) or from an in-memory store useful for tests
-// (MapEnv).
+// (MapEnv). The interface intentionally mirrors common environment
+// operations so callers can easily swap a test implementation in unit
+// tests without touching the real process environment.
 type Env interface {
 	// Get returns the raw environment value for key (may be empty).
 	Get(key string) string
@@ -36,20 +38,32 @@ type Env interface {
 
 	// SetUser sets the current user's username in the environment.
 	SetUser(user string) error
+
+	// GetWd returns the working directory as seen by this Env. For OsEnv this
+	// is the process working directory; for MapEnv it is the stored PWD.
+	GetWd() (string, error)
+
+	// SetWd sets the working directory for this Env. For OsEnv this may
+	// change the process working directory; for MapEnv it updates the stored PWD.
+	SetWd(dir string)
+
+	// GetTempDir returns an appropriate temp directory for this Env. For OsEnv
+	// this delegates to os.TempDir(); MapEnv provides testable fallbacks.
+	GetTempDir() string
 }
 
 // OsEnv implements Env by delegating to the real process environment.
 // Use this in production code.
 type OsEnv struct{}
 
-// GetHome implements Env by returning the OS-reported user home directory.
+// GetHome returns the OS-reported user home directory.
 func (o *OsEnv) GetHome() (string, error) {
 	return os.UserHomeDir()
 }
 
-// SetHome implements Env by setting environment values that represent the
-// user's home directory. On Unix-like systems this sets HOME. On Windows it
-// sets HOME and USERPROFILE to keep common consumers satisfied.
+// SetHome sets environment values that represent the user's home directory.
+// On Unix-like systems this sets HOME. On Windows it also sets USERPROFILE to
+// keep common consumers satisfied.
 func (o *OsEnv) SetHome(home string) error {
 	if runtime.GOOS == "windows" {
 		if err := os.Setenv("USERPROFILE", home); err != nil {
@@ -59,7 +73,8 @@ func (o *OsEnv) SetHome(home string) error {
 	return os.Setenv("HOME", home)
 }
 
-// GetUser implements Env by returning the current OS user username.
+// GetUser returns the current OS user username. If Username is empty it falls
+// back to the user's Name field.
 func (o *OsEnv) GetUser() (string, error) {
 	u, err := user.Current()
 	if err != nil {
@@ -72,9 +87,8 @@ func (o *OsEnv) GetUser() (string, error) {
 	return u.Name, nil
 }
 
-// SetUser implements Env by setting environment values that represent the
-// current user. On Unix-like systems this sets USER. On Windows it sets both
-// USER and USERNAME to maximize compatibility.
+// SetUser sets environment values that represent the current user.
+// On Unix-like systems this sets USER. On Windows it also sets USERNAME.
 func (o *OsEnv) SetUser(username string) error {
 	if runtime.GOOS == "windows" {
 		if err := os.Setenv("USERNAME", username); err != nil {
@@ -89,14 +103,33 @@ func (o *OsEnv) Get(key string) string {
 	return os.Getenv(key)
 }
 
-// Set implements Env by setting the OS environment variable.
+// Set sets the OS environment variable.
 func (o *OsEnv) Set(key string, value string) error {
 	return os.Setenv(key, value)
 }
 
-// Unset implements Env by unsetting the OS environment variable.
+// Unset removes the OS environment variable.
 func (o *OsEnv) Unset(key string) {
 	os.Unsetenv(key)
+}
+
+// GetTempDir returns the OS temporary directory.
+func (o *OsEnv) GetTempDir() string {
+	return os.TempDir()
+}
+
+// GetWd returns the current process working directory.
+func (o *OsEnv) GetWd() (string, error) {
+	return os.Getwd()
+}
+
+// SetWd attempts to change the process working directory to dir and also sets
+// the PWD environment variable. Errors from chdir are intentionally ignored by
+// this method; callers who need to observe chdir errors can perform os.Chdir
+// directly.
+func (o *OsEnv) SetWd(dir string) {
+	_ = os.Setenv("PWD", dir)
+	_ = os.Chdir(dir)
 }
 
 // MapEnv is an in-memory Env implementation useful for tests. It does not
@@ -111,10 +144,10 @@ type MapEnv struct {
 	data map[string]string
 }
 
-// Get implements Env for MapEnv.
+// Get returns the stored value for key. Reading from a nil map returns the
+// zero value, so this method is safe on a zero MapEnv. The special keys HOME
+// and USER come from dedicated fields.
 func (m MapEnv) Get(key string) string {
-	// Reading from a nil map returns the zero value, so this is safe.
-	// Treat the special keys HOME and USER as coming from the dedicated fields.
 	switch key {
 	case "HOME":
 		return m.home
@@ -125,7 +158,7 @@ func (m MapEnv) Get(key string) string {
 	}
 }
 
-// GetHome implements Env. Returns an error if home is not set.
+// GetHome returns the configured home directory or an error if it is not set.
 func (m *MapEnv) GetHome() (string, error) {
 	if m == nil || m.home == "" {
 		return "", errors.New("home not set in MapEnv")
@@ -134,7 +167,7 @@ func (m *MapEnv) GetHome() (string, error) {
 }
 
 // SetHome sets the MapEnv's home directory and updates the "HOME" key in
-// the underlying map for callers that use Get.
+// the underlying map for callers that read via Get.
 func (m *MapEnv) SetHome(home string) error {
 	if m == nil {
 		return errors.New("nil MapEnv")
@@ -147,7 +180,7 @@ func (m *MapEnv) SetHome(home string) error {
 	return nil
 }
 
-// GetUser implements Env. Returns an error if user is not set.
+// GetUser returns the configured username or an error if it is not set.
 func (m *MapEnv) GetUser() (string, error) {
 	if m == nil || m.user == "" {
 		return "", errors.New("user not set in MapEnv")
@@ -155,8 +188,8 @@ func (m *MapEnv) GetUser() (string, error) {
 	return m.user, nil
 }
 
-// SetUser sets the MapEnv's current user and updates the "USER" key in
-// the underlying map for callers that use Get.
+// SetUser sets the MapEnv's current user and updates the "USER" key in the
+// underlying map for callers that use Get.
 func (m *MapEnv) SetUser(username string) error {
 	if m == nil {
 		return errors.New("nil MapEnv")
@@ -169,8 +202,9 @@ func (m *MapEnv) SetUser(username string) error {
 	return nil
 }
 
-// Set implements Env. If key is "HOME" or "USER" the corresponding field
-// is updated, otherwise the value is stored in the internal map.
+// Set stores a key/value pair in the MapEnv. If key is "HOME" or "USER" the
+// corresponding dedicated field is updated. Calling Set on a nil receiver
+// returns an error rather than panicking.
 func (m *MapEnv) Set(key string, value string) error {
 	if m == nil {
 		// Preserve the original behavior of making a new MapEnv when Set is
@@ -192,8 +226,8 @@ func (m *MapEnv) Set(key string, value string) error {
 	return nil
 }
 
-// Unset implements Env. If key is "HOME" or "USER" the corresponding field
-// is cleared, otherwise the key is removed from the internal map.
+// Unset removes a key from the MapEnv. If key is "HOME" or "USER" the
+// corresponding field is cleared. Calling Unset on a nil receiver is a no-op.
 func (m *MapEnv) Unset(key string) {
 	if m == nil {
 		return
@@ -216,22 +250,93 @@ func (m *MapEnv) Unset(key string) {
 	}
 }
 
+// GetTempDir returns a temp directory appropriate for the MapEnv. If the
+// receiver is nil this falls back to os.TempDir to avoid panics.
+//
+// The method prefers explicit TMPDIR/TEMP/TMP values stored in the MapEnv.
+// On Windows it applies a series of fallbacks: LOCALAPPDATA/APPDATA/USERPROFILE,
+// then a home-based default. On Unix-like systems it falls back to /tmp.
+func (m *MapEnv) GetTempDir() string {
+	if m == nil {
+		return os.TempDir()
+	}
+
+	// Prefer explicit TMPDIR/TEMP/TMP if provided in the MapEnv.
+	if d := m.data["TMPDIR"]; d != "" {
+		return d
+	}
+	if d := m.data["TEMP"]; d != "" {
+		return d
+	}
+	if d := m.data["TMP"]; d != "" {
+		return d
+	}
+
+	// Platform-specific sensible defaults without consulting the real process env.
+	if runtime.GOOS == "windows" {
+		// Prefer LOCALAPPDATA, then APPDATA, then USERPROFILE, then a home-based default.
+		if local := m.data["LOCALAPPDATA"]; local != "" {
+			return filepath.Join(local, "Temp")
+		}
+		if app := m.data["APPDATA"]; app != "" {
+			return filepath.Join(app, "Temp")
+		}
+		if up := m.data["USERPROFILE"]; up != "" {
+			return filepath.Join(up, "Temp")
+		}
+		if m.home != "" {
+			return filepath.Join(m.home, "AppData", "Local", "Temp")
+		}
+		// No information available in MapEnv; return empty string to indicate unknown.
+		return ""
+	}
+
+	// Unix-like: fall back to /tmp which is the conventional system temp dir.
+	return "/tmp"
+}
+
+// GetWd returns the MapEnv's PWD value if set, otherwise an error.
+func (m *MapEnv) GetWd() (string, error) {
+	if m == nil {
+		return "", errors.New("wd not set in MapEnv")
+	}
+	if m.data != nil {
+		if wd := m.data["PWD"]; wd != "" {
+			return wd, nil
+		}
+	}
+	return "", errors.New("wd not set in MapEnv")
+}
+
+// SetWd sets the MapEnv's PWD value to the provided directory. Calling
+// SetWd on a nil receiver is a no-op.
+func (m *MapEnv) SetWd(dir string) {
+	if m == nil {
+		return
+	}
+	if m.data == nil {
+		m.data = make(map[string]string)
+	}
+	m.data["PWD"] = dir
+}
+
 // NewTestEnv constructs a MapEnv populated with sensible defaults for tests.
 // It sets HOME and USER and also sets platform-specific variables so functions
 // that prefer XDG_* (Unix) or APPDATA/LOCALAPPDATA (Windows) will pick them up.
 //
 // If home or username are empty, reasonable defaults are chosen:
-//   - home defaults to os.TempDir()/go-std-test-home
+//   - home defaults to os.TempDir()/home/<username>
 //   - username defaults to "testuser"
 //
 // The function does not create any directories on disk; it only sets the
 // environment values in the returned MapEnv.
 func NewTestEnv(home, username string) *MapEnv {
+	basepath := os.TempDir()
 	if username == "" {
 		username = "testuser"
 	}
 	if home == "" {
-		home = filepath.Join(os.TempDir(), "home", username)
+		home = filepath.Join(basepath, "home", username)
 	}
 
 	m := &MapEnv{
@@ -244,12 +349,17 @@ func NewTestEnv(home, username string) *MapEnv {
 	m.data["HOME"] = home
 	m.data["USER"] = username
 
+	m.data["PWD"] = basepath
+
+	// Populate platform-specific defaults so callers that query these keys get
+	// consistent results in tests.
 	if runtime.GOOS == "windows" {
 		// Windows conventions: APPDATA (Roaming) and LOCALAPPDATA (Local)
 		appdata := filepath.Join(home, "AppData", "Roaming")
 		local := filepath.Join(home, "AppData", "Local")
 		m.data["APPDATA"] = appdata
 		m.data["LOCALAPPDATA"] = local
+		m.data["TMPDIR"] = filepath.Join(local, "Temp")
 	} else {
 		// Unix-like conventions: XDG_* fallbacks under the home directory.
 		xdgConfig := filepath.Join(home, ".config")
@@ -260,14 +370,15 @@ func NewTestEnv(home, username string) *MapEnv {
 		m.data["XDG_CACHE_HOME"] = xdgCache
 		m.data["XDG_DATA_HOME"] = xdgData
 		m.data["XDG_STATE_HOME"] = xdgState
+		m.data["TMPDIR"] = filepath.Join(basepath, "tmp")
 	}
 
 	return m
 }
 
 // GetDefault returns the value of key from the provided Env if present
-// (non-empty), otherwise it returns the provided fallback value.
-// Use this helper to prefer an environment value while allowing a default.
+// (non-empty), otherwise it returns the provided fallback value. Use this
+// helper to prefer an environment value while allowing a default.
 func GetDefault(env Env, key, other string) string {
 	if env == nil {
 		return other
@@ -278,10 +389,10 @@ func GetDefault(env Env, key, other string) string {
 	return other
 }
 
-func ExpandEnv(env Env, s string) string {
-	if env == nil {
-		env = &OsEnv{}
-	}
+// ExpandEnv expands $var or ${var} in s using the Env stored in ctx. If no
+// Env is present in the context the real OS environment is used via OsEnv.
+func ExpandEnv(ctx context.Context, s string) string {
+	env := EnvFromContext(ctx)
 	return os.Expand(s, env.Get)
 }
 
@@ -296,10 +407,14 @@ var (
 	defaultEnv = &OsEnv{}
 )
 
+// WithEnv returns a copy of ctx that carries the provided Env. Use this to
+// inject a test environment into code under test.
 func WithEnv(ctx context.Context, env Env) context.Context {
 	return context.WithValue(ctx, ctxEnvKey, env)
 }
 
+// EnvFromContext returns the Env stored in ctx. If ctx is nil or does not
+// contain an Env, the real OsEnv is returned.
 func EnvFromContext(ctx context.Context) Env {
 	if v := ctx.Value(ctxEnvKey); v != nil {
 		if env, ok := v.(Env); ok && env != nil {

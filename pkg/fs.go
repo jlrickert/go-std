@@ -1,37 +1,41 @@
 package std
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 
 	"golang.org/x/term"
 )
 
-// Package std provides small helpers for working with standard I/O in CLIs,
-// and utilities useful in tests for creating temporary stdio-like files.
+// Package std contains small helpers for command line programs and test
+// utilities for working with standard input/output files and file system
+// paths in a cross-platform, testable way.
 //
-// NOTE: these helpers intentionally take *os.File so callers can pass os.Stdin
-// or a test file obtained from CreateTestStdio.
+// Functions in this package intentionally accept *os.File so callers can pass
+// os.Stdin or a test file created with CreateTestStdio.
 
 // StdinHasData reports whether the provided file appears to be receiving
-// piped/redirected input (for example: `echo hi | myprog` or `myprog < file.txt`).
+// piped or redirected input (for example: `echo hi | myprog` or
+// `myprog < file.txt`).
 //
-// The function performs a lightweight metadata check: it returns true when the
-// file is not a character device (i.e. not a terminal). This is the common,
-// portable heuristic used to detect piped input.
+// The implementation performs a lightweight metadata check: it returns true
+// when the file is not a character device (that is, not a terminal). This is a
+// common, portable heuristic used to detect piped input.
 //
-// Important details and caveats:
+// Notes and caveats:
 //   - The check does not attempt to read from the file. It only inspects the
 //     file mode returned by Stat().
 //   - For pipes this indicates stdin is coming from a pipe or redirect, but it
-//     does not strictly guarantee bytes are immediately available to read — an
-//     open pipe may be empty until the writer writes to it.
+//     does not strictly guarantee that bytes are immediately available to read.
+//     An open pipe may be empty until the writer writes to it.
 //   - If f.Stat() returns an error the function conservatively returns false.
-//   - Callers should pass os.Stdin to check the program's standard input,
-//     or a *os.File pointing to another stream for testing.
+//   - Callers should pass os.Stdin to check the program's standard input, or a
+//     *os.File pointing to another stream for testing.
 //
 // Example:
 //
@@ -53,7 +57,7 @@ func StdinHasData(f *os.File) bool {
 // file descriptor refers to a terminal device (TTY). Pass os.Stdin to check the
 // program's standard input.
 //
-// Note:
+// Notes:
 //   - The check uses the file descriptor (f.Fd()) and will return false for
 //     pipes, redirected files, and other non-terminal descriptors.
 //   - It is a non-destructive check and does not change the file position.
@@ -63,12 +67,12 @@ func IsInteractiveTerminal(f *os.File) bool {
 
 // CreateTestStdio creates a temporary file prefilled with the given content
 // and seeks it to the beginning, making it suitable to pass as a stand-in for
-// stdin/stdout/stderr in tests.
+// stdin, stdout, or stderr in tests.
 //
 // It returns the open *os.File and a cleanup function. The cleanup function
 // closes the file and removes it from disk. The function panics on any error
-// while creating, writing, or seeking the temporary file — this is intentional
-// to make test setup failures immediately obvious.
+// while creating, writing, or seeking the temporary file; this makes test
+// setup failures immediately visible.
 //
 // Example usage in tests:
 //
@@ -104,14 +108,16 @@ func CreateTestStdio(content string) (*os.File, func()) {
 	return f, cleanup
 }
 
-// atomicWriteFile writes data to path atomically. It:
-//   - ensures parent directory exists,
-//   - writes to a temp file in the same directory,
-//   - fsyncs the file,
-//   - renames the temp file to the final path (atomic on POSIX),
-//   - fsyncs the parent directory (best-effort).
+// AtomicWriteFile writes data to path atomically. It performs the following
+// steps:
+// - ensures the parent directory exists,
+// - writes to a temp file in the same directory,
+// - renames the temp file to the final path (atomic on POSIX when on the same filesystem),
 //
-// perm is the file mode to use for the final file (e.g. 0644).
+// The perm parameter is the file mode to use for the final file (for example, 0644).
+//
+// On success the function returns nil. On error it attempts to clean up any
+// temporary artifacts and returns a descriptive error.
 func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 
@@ -139,13 +145,6 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("atomic write: write temp file %q: %w", tmpName, err)
 	}
 
-	// Sync to storage.
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		cleanup()
-		return fmt.Errorf("atomic write: sync temp file %q: %w", tmpName, err)
-	}
-
 	// Close file before renaming.
 	if err := tmpFile.Close(); err != nil {
 		cleanup()
@@ -155,7 +154,7 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	// Set final permissions (rename preserves perms on many systems, but ensure).
 	if err := os.Chmod(tmpName, perm); err != nil {
 		// Not fatal: attempt rename anyway, but record error if rename fails.
-		// We don't return here because chmod may fail on platforms with different semantics.
+		// We do not return here because chmod may fail on platforms with different semantics.
 	}
 
 	// Rename into place (atomic on POSIX when same fs).
@@ -164,24 +163,128 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("atomic write: rename %q -> %q: %w", tmpName, path, err)
 	}
 
-	// Best-effort sync of parent directory so directory entry is durable.
-	// Skip on Windows (no reliable dir fsync semantics there).
-	if err := syncDir(dir); err != nil && runtime.GOOS != "windows" {
-		// Directory sync failure is important on POSIX; report it.
-		return fmt.Errorf("atomic write: sync dir %q: %w", dir, err)
-	}
-
 	return nil
 }
 
-// syncDir opens dir and calls Sync on it so directory metadata (the rename)
-// is flushed. Returns error from Open or Sync.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
+// AbsPath returns a cleaned absolute path for the provided path. Behavior:
+// - If path is empty, returns empty string.
+// - Expands a leading tilde using ExpandPath with the Env from ctx.
+// - Expands environment variables from the injected env in ctx.
+// - If the path is not absolute, attempts to convert it to an absolute path.
+// - Returns a cleaned path in all cases.
+//
+// If ExpandPath fails (for example when HOME is not available) AbsPath falls
+// back to the original input and proceeds with expansion of environment
+// variables and cleaning.
+func AbsPath(ctx context.Context, path string) string {
+	if path == "" {
+		return ""
 	}
-	defer d.Close()
-	// On Unix, File.Sync on a directory will fsync the directory.
-	return d.Sync()
+
+	// Expand leading tilde, if present.
+	p, err := ExpandPath(ctx, path)
+	if err != nil {
+		// If expansion fails (for example: no HOME), fall back to the original input.
+		p = path
+	}
+
+	// If the path is already absolute, just clean and return it.
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+
+	// If a PWD is provided by the injected Env, use it as the base for relative paths.
+	// Otherwise fall back to filepath.Abs which uses the process working directory.
+	env := EnvFromContext(ctx)
+	if cwd, err := env.GetWd(); err == nil && cwd != "" {
+		// Ensure cwd is absolute.
+		if !filepath.IsAbs(cwd) {
+			if absCwd, err := filepath.Abs(cwd); err == nil {
+				cwd = absCwd
+			}
+		}
+		joined := filepath.Join(cwd, p)
+		return filepath.Clean(joined)
+	}
+
+	// Fall back to using the process working directory.
+	if abs, err := filepath.Abs(p); err == nil {
+		return filepath.Clean(abs)
+	}
+
+	// As a last resort, return the cleaned original.
+	return filepath.Clean(p)
+}
+
+// ResolvePath returns the absolute path with symlinks evaluated. If symlink
+// evaluation fails the absolute path returned by AbsPath is returned instead.
+func ResolvePath(ctx context.Context, path string) string {
+	if path == "" {
+		return ""
+	}
+
+	abs := AbsPath(ctx, path)
+	// Attempt to resolve symlinks; return abs if resolution fails.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return abs
+}
+
+// RelativePath returns a path relative to basepath. If path is empty an empty
+// string is returned. If computing the relative path fails the absolute target
+// path is returned.
+func RelativePath(ctx context.Context, basepath, path string) string {
+	if path == "" {
+		return ""
+	}
+
+	base := AbsPath(ctx, basepath)
+	target := AbsPath(ctx, path)
+
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		// If we cannot compute a relative path, return the absolute target.
+		return target
+	}
+	return rel
+}
+
+// findGitRoot attempts to use the git CLI to determine the repository top-level
+// directory starting from 'start'. If that fails (git not available, not a git
+// worktree, or command error), it falls back to the original upward filesystem
+// search for a .git entry.
+func FindGitRoot(start string) string {
+	// Normalize start to a directory (in case a file path was passed).
+	if fi, err := os.Stat(start); err == nil && !fi.IsDir() {
+		start = filepath.Dir(start)
+	}
+
+	// First, try using git itself to find the top-level directory. Using `-C`
+	// makes git operate relative to the provided path.
+	if out, err := exec.Command("git", "-C", start,
+		"rev-parse", "--show-toplevel").Output(); err == nil {
+		if p := strings.TrimSpace(string(out)); p != "" {
+			return p
+		}
+	}
+
+	// Fallback: walk upwards looking for a .git entry (dir or file).
+	p := start
+	for {
+		gitPath := filepath.Join(p, ".git")
+		if fi, err := os.Stat(gitPath); err == nil {
+			// .git can be a dir (normal repo) or a file (worktree / submodule).
+			if fi.IsDir() || fi.Mode().IsRegular() {
+				return p
+			}
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			// reached filesystem root
+			break
+		}
+		p = parent
+	}
+	return ""
 }
