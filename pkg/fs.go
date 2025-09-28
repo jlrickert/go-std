@@ -196,7 +196,7 @@ func AbsPath(ctx context.Context, path string) string {
 	// If a PWD is provided by the injected Env, use it as the base for relative paths.
 	// Otherwise fall back to filepath.Abs which uses the process working directory.
 	env := EnvFromContext(ctx)
-	if cwd, err := env.GetWd(); err == nil && cwd != "" {
+	if cwd, err := env.Getwd(); err == nil && cwd != "" {
 		// Ensure cwd is absolute.
 		if !filepath.IsAbs(cwd) {
 			if absCwd, err := filepath.Abs(cwd); err == nil {
@@ -254,7 +254,7 @@ func RelativePath(ctx context.Context, basepath, path string) string {
 // directory starting from 'start'. If that fails (git not available, not a git
 // worktree, or command error), it falls back to the original upward filesystem
 // search for a .git entry.
-func FindGitRoot(start string) string {
+func FindGitRoot(ctx context.Context, start string) string {
 	// Normalize start to a directory (in case a file path was passed).
 	if fi, err := os.Stat(start); err == nil && !fi.IsDir() {
 		start = filepath.Dir(start)
@@ -262,8 +262,8 @@ func FindGitRoot(start string) string {
 
 	// First, try using git itself to find the top-level directory. Using `-C`
 	// makes git operate relative to the provided path.
-	if out, err := exec.Command("git", "-C", start,
-		"rev-parse", "--show-toplevel").Output(); err == nil {
+	args := []string{"-C", start, "rev-parse", "--show-toplevel"}
+	if out, err := exec.CommandContext(ctx, "git", args...).Output(); err == nil {
 		if p := strings.TrimSpace(string(out)); p != "" {
 			return p
 		}

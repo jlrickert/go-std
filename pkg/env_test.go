@@ -3,15 +3,17 @@ package std_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/pkg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetDefault(t *testing.T) {
-	env := std.NewTestEnv("", "")
+	jail := t.TempDir()
+	env := std.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set("EXIST", "val"))
 
 	assert.Equal(t, "val", std.GetDefault(env, "EXIST", "other"))
@@ -24,17 +26,21 @@ func TestGetDefault(t *testing.T) {
 	assert.Equal(t, "fallback", std.GetDefault(env, "MISSING", "fallback"))
 }
 
-func TestMapEnvSetUnsetHomeUser(t *testing.T) {
-	m := std.NewTestEnv("/foo/home", "alice")
+func TestTestEnvSetUnsetHomeUser(t *testing.T) {
+	jail := t.TempDir()
+	m := std.NewTestEnv(jail, filepath.FromSlash("/foo/home"), "alice")
 
 	home, err := m.GetHome()
 	require.NoError(t, err)
-	assert.Equal(t, "/foo/home", home)
+	expected := std.EnsureInJail(jail, filepath.FromSlash("/foo/home"))
+	// normalize before compare
+	assert.Equal(t, filepath.Clean(expected), filepath.Clean(home))
 
-	require.NoError(t, m.Set("HOME", "/bar"))
+	require.NoError(t, m.Set("HOME", filepath.FromSlash("/bar")))
 	home, err = m.GetHome()
 	require.NoError(t, err)
-	assert.Equal(t, "/bar", home)
+	expected2 := std.EnsureInJail(jail, filepath.FromSlash("/bar"))
+	assert.Equal(t, filepath.Clean(expected2), filepath.Clean(home))
 
 	m.Unset("HOME")
 	_, err = m.GetHome()
@@ -42,16 +48,16 @@ func TestMapEnvSetUnsetHomeUser(t *testing.T) {
 }
 
 // Ensure changing the test MapEnv does not modify the real process environment.
-func TestMapEnvDoesNotChangeOsEnv(t *testing.T) {
+func TestTestEnvDoesNotChangeOsEnv(t *testing.T) {
 	const key = "GO_STD_TEST_OS_ENV_KEY"
 
 	// Preserve original OS env value and restore on exit.
 	orig, ok := os.LookupEnv(key)
 	t.Cleanup(func() {
 		if ok {
-			os.Setenv(key, orig)
+			_ = os.Setenv(key, orig)
 		} else {
-			os.Unsetenv(key)
+			_ = os.Unsetenv(key)
 		}
 	})
 
@@ -59,7 +65,8 @@ func TestMapEnvDoesNotChangeOsEnv(t *testing.T) {
 	require.NoError(t, os.Setenv(key, "os-value"))
 
 	// Create a test env and change the same key in the MapEnv.
-	env := std.NewTestEnv("", "")
+	jail := t.TempDir()
+	env := std.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set(key, "test-value"))
 
 	// The real OS environment should remain unchanged.
@@ -71,9 +78,9 @@ func TestMapEnvDoesNotChangeOsEnv(t *testing.T) {
 }
 
 func TestExpandEnv(t *testing.T) {
-	t.Parallel()
-
-	env := std.NewTestEnv("", "")
+	jail := t.TempDir()
+	// Do not run this test in parallel because it temporarily sets real OS env.
+	env := std.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set("FOO", "bar"))
 	require.NoError(t, env.Set("EMPTY", ""))
 
@@ -81,7 +88,7 @@ func TestExpandEnv(t *testing.T) {
 
 	// Simple $VAR expansion
 	got := std.ExpandEnv(ctx, "$FOO/baz")
-	assert.Equal(t, "bar/baz", got)
+	assert.Equal(t, filepath.Join("bar", "baz"), got)
 
 	// Braced form, missing and empty values
 	got2 := std.ExpandEnv(ctx, "${FOO}_${MISSING}_${EMPTY}")
@@ -105,13 +112,12 @@ func TestExpandEnv(t *testing.T) {
 }
 
 // Tests for working directory handling in MapEnv and OsEnv.
-
-func TestMapEnvGetWdMissing(t *testing.T) {
-	var m std.MapEnv
-	_, err := m.GetWd()
+func TestTestEnvGetwdMissing(t *testing.T) {
+	var m std.TestEnv
+	_, err := m.Getwd()
 	require.Error(t, err)
 
-	var mnil *std.MapEnv = nil
-	_, err = mnil.GetWd()
+	var mnil *std.TestEnv = nil
+	_, err = mnil.Getwd()
 	require.Error(t, err)
 }

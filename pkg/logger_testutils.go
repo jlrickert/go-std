@@ -126,7 +126,10 @@ func RequireEntry(t *testing.T, th *TestHandler, pred func(LoggedEntry) bool, ti
 			th.mu.Lock()
 			entries := append([]LoggedEntry(nil), th.Entries...)
 			th.mu.Unlock()
-			t.Fatalf("required log entry not found in %s; captured %d entries: %#v", timeout, len(entries), entries)
+			t.Fatalf(
+				"required log entry not found in %s; captured %d entries: %#v",
+				timeout, len(entries), entries,
+			)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
