@@ -16,6 +16,10 @@ import (
 // utilities to store/retrieve loggers from contexts, and a test handler that
 // captures structured log entries for assertions in tests.
 
+var (
+	DefaultLogger = NewDiscardLogger()
+)
+
 // ParseLevel maps common textual level names to slog.Level. The function is
 // case-insensitive and ignores surrounding whitespace. If an unrecognized value
 // is provided, slog.LevelInfo is returned.

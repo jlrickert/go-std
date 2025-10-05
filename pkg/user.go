@@ -3,6 +3,8 @@ package std
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -180,4 +182,38 @@ func UserStatePath(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "state"), nil
+}
+
+var DefaultEditor = "nano"
+
+// Edit launches the user's editor to edit the provided file path.
+// It checks $VISUAL first, then $EDITOR. If neither is set, it falls back to
+// "nano". The function attaches the current process's stdio to the editor so
+// interactive editors work as expected.
+func Edit(ctx context.Context, path string) error {
+	if path == "" {
+		return fmt.Errorf("empty filepath")
+	}
+
+	editor := os.Getenv("VISUAL")
+	if strings.TrimSpace(editor) == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if strings.TrimSpace(editor) == "" {
+		editor = DefaultEditor
+	}
+
+	parts := strings.Fields(editor)
+	name := parts[0]
+	args := append(parts[1:], path)
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("running editor %q: %w", editor, err)
+	}
+	return nil
 }
