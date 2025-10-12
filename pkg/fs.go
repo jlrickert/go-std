@@ -20,6 +20,7 @@ import (
 //
 // Functions in this package intentionally accept *os.File so callers can pass
 // os.Stdin or a test file created with CreateTestStdio.
+//
 // StdinHasData reports whether the provided file appears to be receiving
 // piped or redirected input (for example: `echo hi | myprog` or
 // `myprog < file.txt`).
@@ -32,8 +33,8 @@ import (
 //   - The check does not attempt to read from the file. It only inspects the
 //     file mode returned by Stat().
 //   - For pipes this indicates stdin is coming from a pipe or redirect, but it
-//     does not strictly guarantee that bytes are immediately available to read.
-//     An open pipe may be empty until the writer writes to it.
+//     does not strictly guarantee that bytes are immediately available to
+//     read. An open pipe may be empty until the writer writes to it.
 //   - If f.Stat() returns an error the function conservatively returns false.
 //   - Callers should pass os.Stdin to check the program's standard input, or a
 //     *os.File pointing to another stream for testing.
@@ -111,11 +112,13 @@ func CreateTestStdio(content string) (*os.File, func()) {
 
 // AtomicWriteFile writes data to path atomically. It performs the following
 // steps:
-// - ensures the parent directory exists,
-// - writes to a temp file in the same directory,
-// - renames the temp file to the final path (atomic on POSIX when on the same filesystem),
+//   - ensures the parent directory exists,
+//   - writes to a temp file in the same directory,
+//   - renames the temp file to the final path (atomic on POSIX when on the same
+//     filesystem),
 //
-// The perm parameter is the file mode to use for the final file (for example, 0644).
+// The perm parameter is the file mode to use for the final file (for example,
+// 0644).
 //
 // On success the function returns nil. On error it attempts to clean up any
 // temporary artifacts and returns a descriptive error.
@@ -123,12 +126,14 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	env := EnvFromContext(ctx)
 	lg := LoggerFromContext(ctx)
 
+	path, err := ExpandPath(ctx, path)
+
 	dir := filepath.Dir(path)
 
 	// Ensure parent directory exists.
-	if err := env.Mkdir(dir, 0o755, true); err != nil {
+	if err := Mkdir(ctx, dir, 0o755, true); err != nil {
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelError,
 			"atomic write: mkdirall failed",
 			slog.String("dir", dir),
@@ -143,7 +148,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	tmpFile, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+".*")
 	if err != nil {
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelError,
 			"atomic write: create temp file failed",
 			slog.String("dir", dir),
@@ -158,7 +163,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	if _, err := tmpFile.Write(data); err != nil {
 		_ = tmpFile.Close()
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelError,
 			"atomic write: write temp file failed",
 			slog.String("tmp", tmpName),
@@ -170,7 +175,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	// Close file before renaming.
 	if err := tmpFile.Close(); err != nil {
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelError,
 			"atomic write: close temp file failed",
 			slog.String("tmp", tmpName),
@@ -183,7 +188,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	if err := os.Chmod(tmpName, perm); err != nil {
 		// Not fatal: attempt rename anyway, but record error if rename fails.
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelDebug,
 			"atomic write: chmod failed, continuing",
 			slog.String("tmp", tmpName),
@@ -192,9 +197,9 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	}
 
 	// Rename into place (atomic on POSIX when same fs).
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := Rename(ctx, tmpName, path); err != nil {
 		lg.Log(
-			context.Background(),
+			ctx,
 			slog.LevelError,
 			"atomic write: rename failed",
 			slog.String("tmp", tmpName),
@@ -205,7 +210,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 	}
 
 	lg.Log(
-		context.Background(),
+		ctx,
 		slog.LevelDebug,
 		"atomic write success",
 		slog.String("path", path),
@@ -231,7 +236,8 @@ func AbsPath(ctx context.Context, path string) string {
 	// Expand leading tilde, if present.
 	p, err := ExpandPath(ctx, path)
 	if err != nil {
-		// If expansion fails (for example: no HOME), fall back to the original input.
+		// If expansion fails (for example: no HOME), fall back to the original
+		// input.
 		p = path
 	}
 
@@ -241,8 +247,9 @@ func AbsPath(ctx context.Context, path string) string {
 		return res
 	}
 
-	// If a PWD is provided by the injected Env, use it as the base for relative paths.
-	// Otherwise fall back to filepath.Abs which uses the process working directory.
+	// If a PWD is provided by the injected Env, use it as the base for relative
+	// paths. Otherwise fall back to filepath.Abs which uses the process working
+	// directory.
 	env := EnvFromContext(ctx)
 	if cwd, err := env.Getwd(); err == nil && cwd != "" {
 		// Ensure cwd is absolute.
@@ -284,8 +291,8 @@ func ResolvePath(ctx context.Context, path string) string {
 }
 
 // RelativePath returns a path relative to basepath. If path is empty an empty
-// string is returned. If computing the relative path fails the absolute target
-// path is returned.
+// string is returned. If computing the relative path fails the absolute
+// target path is returned.
 func RelativePath(ctx context.Context, basepath, path string) string {
 	base := AbsPath(ctx, basepath)
 	target := AbsPath(ctx, path)
@@ -306,7 +313,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	lg := LoggerFromContext(ctx)
 
 	// Normalize start to a directory (in case a file path was passed).
-	if fi, err := os.Stat(start); err == nil && !fi.IsDir() {
+	if fi, err := Stat(ctx, start); err == nil && !fi.IsDir() {
 		start = filepath.Dir(start)
 	}
 
@@ -338,7 +345,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	p := start
 	for {
 		gitPath := filepath.Join(p, ".git")
-		if fi, err := os.Stat(gitPath); err == nil {
+		if fi, err := Stat(ctx, gitPath); err == nil {
 			// .git can be a dir (normal repo) or a file (worktree / submodule).
 			if fi.IsDir() || fi.Mode().IsRegular() {
 				lg.Log(ctx, slog.LevelDebug, "found .git entry", slog.String("root", p))
@@ -408,10 +415,13 @@ func EnsureInJailFor(jail, p string) string {
 // filesystem view can be controlled by an injected TestEnv.
 func ReadFile(ctx context.Context, name string) ([]byte, error) {
 	lg := LoggerFromContext(ctx)
-	lg.Log(ctx, slog.LevelDebug, "read file", slog.String("name", name))
 
-	env := EnvFromContext(ctx)
-	b, err := env.ReadFile(name)
+	path, err := ExpandPath(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	lg.Log(ctx, slog.LevelDebug, "read file", slog.String("name", name), slog.String("path", path))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		lg.Log(
 			ctx,
@@ -424,24 +434,29 @@ func ReadFile(ctx context.Context, name string) ([]byte, error) {
 	return b, err
 }
 
-// WriteFile writes data to a file using the Env stored in ctx. The perm argument
-// is the file mode to apply to the written file.
+// WriteFile writes data to a file using the Env stored in ctx. The perm
+// argument is the file mode to apply to the written file.
 func WriteFile(ctx context.Context, name string, data []byte, perm os.FileMode) error {
 	lg := LoggerFromContext(ctx)
+	path, err := ExpandPath(ctx, name)
+	if err != nil {
+		return err
+	}
+
 	lg.Log(
 		ctx,
 		slog.LevelDebug,
 		"write file",
 		slog.String("name", name),
+		slog.String("path", path),
 	)
-
-	env := EnvFromContext(ctx)
-	if err := env.WriteFile(name, data, perm); err != nil {
+	if err := os.WriteFile(path, data, perm); err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
 			"write file failed",
 			slog.String("name", name),
+			slog.String("path", path),
 			slog.Any("error", err),
 		)
 		return err
@@ -461,24 +476,48 @@ func Mkdir(ctx context.Context, path string, perm os.FileMode, all bool) error {
 		slog.Bool("all", all),
 	)
 
-	env := EnvFromContext(ctx)
-	if err := env.Mkdir(path, perm, all); err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"mkdir failed",
-			slog.String("path", path),
-			slog.Any("error", err),
-		)
+	path, err := ExpandPath(ctx, path)
+	if err != nil {
 		return err
 	}
+
+	if all {
+		if err := os.MkdirAll(path, perm); err != nil {
+			lg.Log(
+				ctx,
+				slog.LevelError,
+				"mkdirAll failed",
+				slog.String("path", path),
+				slog.Any("error", err),
+			)
+			return err
+		}
+	} else {
+		if err := os.Mkdir(path, perm); err != nil {
+			lg.Log(
+				ctx,
+				slog.LevelError,
+				"mkdir failed",
+				slog.String("path", path),
+				slog.Any("error", err),
+			)
+			return err
+		}
+	}
+
 	return nil
 }
 
 // Remove removes the named file or directory using the Env stored in ctx. If
 // all is true RemoveAll is used.
-func Remove(ctx context.Context, path string, all bool) error {
+func Remove(ctx context.Context, name string, all bool) error {
 	lg := LoggerFromContext(ctx)
+
+	path, err := ExpandPath(ctx, name)
+	if err != nil {
+		return err
+	}
+
 	lg.Log(
 		ctx,
 		slog.LevelDebug,
@@ -487,17 +526,30 @@ func Remove(ctx context.Context, path string, all bool) error {
 		slog.Bool("all", all),
 	)
 
-	env := EnvFromContext(ctx)
-	if err := env.Remove(path, all); err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"remove failed",
-			slog.String("path", path),
-			slog.Any("error", err),
-		)
-		return err
+	if all {
+		if err := os.RemoveAll(path); err != nil {
+			lg.Log(
+				ctx,
+				slog.LevelError,
+				"removeAll failed",
+				slog.String("path", path),
+				slog.Any("error", err),
+			)
+			return err
+		}
+	} else {
+		if err := os.Remove(path); err != nil {
+			lg.Log(
+				ctx,
+				slog.LevelError,
+				"remove failed",
+				slog.String("path", path),
+				slog.Any("error", err),
+			)
+			return err
+		}
 	}
+
 	return nil
 }
 
@@ -512,17 +564,48 @@ func Rename(ctx context.Context, src, dst string) error {
 		slog.String("dst", dst),
 	)
 
-	env := EnvFromContext(ctx)
-	if err := env.Rename(src, dst); err != nil {
+	srcPath, err := ExpandPath(ctx, src)
+	if err != nil {
+		return err
+	}
+	dstPath, err := ExpandPath(ctx, dst)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Rename(srcPath, dstPath); err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
 			"rename failed",
 			slog.String("src", src),
 			slog.String("dst", dst),
+			slog.String("srcPath", srcPath),
+			slog.String("dstPath", dstPath),
 			slog.Any("error", err),
 		)
 		return err
 	}
 	return nil
+}
+
+// Stat returns the os.FileInfo for the named file. The path is expanded using
+// ExpandPath with the Env from ctx before calling os.Stat.
+func Stat(ctx context.Context, name string) (os.FileInfo, error) {
+	path, err := ExpandPath(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return os.Stat(path)
+}
+
+// ReadDir reads the directory named by name and returns a list of entries. The
+// path is expanded using ExpandPath with the Env from ctx before calling
+// os.ReadDir.
+func ReadDir(ctx context.Context, name string) ([]os.DirEntry, error) {
+	path, err := ExpandPath(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadDir(path)
 }

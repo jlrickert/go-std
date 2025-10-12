@@ -63,22 +63,22 @@ type Env interface {
 	// fallbacks.
 	GetTempDir() string
 
-	// ReadFile reads the named file from the filesystem view held by this
-	// Env.
-	ReadFile(name string) ([]byte, error)
-
-	// WriteFile writes data to a file in the filesystem view held by this
-	// Env using the provided permissions.
-	WriteFile(name string, data []byte, perm os.FileMode) error
-
-	// Mkdir creates a directory. If all is true MkdirAll is used.
-	Mkdir(path string, perm os.FileMode, all bool) error
-
-	// Remove removes the file or directory. If all is true RemoveAll is used.
-	Remove(path string, all bool) error
-
-	// Rename renames (moves) a file or directory.
-	Rename(src, dst string) error
+	// // ReadFile reads the named file from the filesystem view held by this
+	// // Env.
+	// ReadFile(name string) ([]byte, error)
+	//
+	// // WriteFile writes data to a file in the filesystem view held by this
+	// // Env using the provided permissions.
+	// WriteFile(name string, data []byte, perm os.FileMode) error
+	//
+	// // Mkdir creates a directory. If all is true MkdirAll is used.
+	// Mkdir(path string, perm os.FileMode, all bool) error
+	//
+	// // Remove removes the file or directory. If all is true RemoveAll is used.
+	// Remove(path string, all bool) error
+	//
+	// // Rename renames (moves) a file or directory.
+	// Rename(src, dst string) error
 }
 
 // GetDefault returns the value of key from the provided Env if present

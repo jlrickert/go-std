@@ -184,13 +184,7 @@ func (f *Fixture) Context() context.Context {
 // interpreted relative to the Jail root.
 func (f *Fixture) ReadJailFile(path string) ([]byte, error) {
 	f.t.Helper()
-	if f.Jail == "" {
-		return nil, fmt.Errorf("no jail set")
-	}
-	path, err := std.ExpandPath(f.Context(), path)
-	if err != nil {
-		return nil, err
-	}
+	path = f.env.ExpandPath(path)
 	path = std.EnsureInJail(f.Jail, path)
 	return f.env.ReadFile(path)
 }
