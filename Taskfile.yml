@@ -2,10 +2,11 @@
 
 version: "3"
 tasks:
-  run: go run "./cmd/keg"
   test:
     cmds:
-      - go test ./pkg
+      - go test ./project ./testutils/ ./pkg/
     sources:
-      - pkg/*.go
+      - pkg/**/*.go
+      - project/**/*.go
+      - testutils/**/*.go
     silent: true

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 )
 
 // TestEnv is an in-memory Env implementation useful for tests. It does not
@@ -30,18 +32,18 @@ var _ Env = (*TestEnv)(nil)
 // paths used for home are under the test temporary area.
 func (m *TestEnv) GetHome() (string, error) {
 	if m == nil || m.home == "" {
-		return "", errors.New("home not set in MapEnv")
+		return "", errors.New("home not set in TestEnv")
 	}
-	return EnsureInJail(m.jail, m.home), nil
+	return m.home, nil
 }
 
-// SetHome sets the MapEnv's home directory and updates the "HOME" key in
-// the underlying map for callers that read via Get.
+// SetHome sets the TestEnv's home directory and updates the "HOME" key in the
+// underlying map for callers that read via Get.
 func (m *TestEnv) SetHome(home string) error {
 	if m == nil {
-		return errors.New("nil MapEnv")
+		return errors.New("nil TestEnv")
 	}
-	m.home = EnsureInJail(m.jail, home)
+	m.home = EnsureInJailFor(m.jail, home)
 	if m.data == nil {
 		m.data = make(map[string]string)
 	}
@@ -52,16 +54,16 @@ func (m *TestEnv) SetHome(home string) error {
 // GetUser returns the configured username or an error if it is not set.
 func (m *TestEnv) GetUser() (string, error) {
 	if m == nil || m.user == "" {
-		return "", errors.New("user not set in MapEnv")
+		return "", errors.New("user not set in TestEnv")
 	}
 	return m.user, nil
 }
 
-// SetUser sets the MapEnv's current user and updates the "USER" key in the
+// SetUser sets the TestEnv's current user and updates the "USER" key in the
 // underlying map for callers that use Get.
 func (m *TestEnv) SetUser(username string) error {
 	if m == nil {
-		return errors.New("nil MapEnv")
+		return errors.New("nil TestEnv")
 	}
 	m.user = username
 	if m.data == nil {
@@ -72,7 +74,7 @@ func (m *TestEnv) SetUser(username string) error {
 }
 
 // Get returns the stored value for key. Reading from a nil map returns the
-// zero value, so this method is safe on a zero MapEnv. The special keys HOME
+// zero value, so this method is safe on a zero TestEnv. The special keys HOME
 // and USER come from dedicated fields.
 func (m TestEnv) Get(key string) string {
 	switch key {
@@ -85,15 +87,15 @@ func (m TestEnv) Get(key string) string {
 	}
 }
 
-// Set stores a key/value pair in the MapEnv. If key is "HOME" or "USER" the
+// Set stores a key/value pair in the TestEnv. If key is "HOME" or "USER" the
 // corresponding dedicated field is updated. Calling Set on a nil receiver
 // returns an error rather than panicking.
 func (m *TestEnv) Set(key string, value string) error {
 	if m == nil {
-		// Preserve the original behavior of making a new MapEnv when Set is
+		// Preserve the original behavior of making a new TestEnv when Set is
 		// called on a nil receiver. However, since we cannot mutate the
 		// caller's nil pointer here, return an error to indicate misuse.
-		return errors.New("nil MapEnv")
+		return errors.New("nil TestEnv")
 	}
 	switch key {
 	case "HOME":
@@ -109,12 +111,57 @@ func (m *TestEnv) Set(key string, value string) error {
 	return nil
 }
 
+// Environ returns a slice of "KEY=VALUE" entries representing the environment
+// stored in the TestEnv. It guarantees HOME and USER are present when set.
+func (m *TestEnv) Environ() []string {
+	if m == nil {
+		return []string{}
+	}
+
+	// Collect keys from the backing map and ensure HOME/USER are present
+	// based on dedicated fields so callers get a complete view.
+	keys := make([]string, 0, len(m.data)+2)
+	seen := make(map[string]struct{}, len(m.data)+2)
+	for k := range m.data {
+		keys = append(keys, k)
+		seen[k] = struct{}{}
+	}
+	if m.home != "" {
+		if _, ok := seen["HOME"]; !ok {
+			keys = append(keys, "HOME")
+		}
+	}
+	if m.user != "" {
+		if _, ok := seen["USER"]; !ok {
+			keys = append(keys, "USER")
+		}
+	}
+
+	sort.Strings(keys)
+
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		var v string
+		switch k {
+		case "HOME":
+			v = m.home
+		case "USER":
+			v = m.user
+		default:
+			v = m.data[k]
+		}
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+// Has reports whether the given key is present in the TestEnv map.
 func (m *TestEnv) Has(key string) bool {
 	_, ok := m.data[key]
 	return ok
 }
 
-// Unset removes a key from the MapEnv. If key is "HOME" or "USER" the
+// Unset removes a key from the TestEnv. If key is "HOME" or "USER" the
 // corresponding field is cleared. Calling Unset on a nil receiver is a no-op.
 func (m *TestEnv) Unset(key string) {
 	if m == nil {
@@ -138,10 +185,10 @@ func (m *TestEnv) Unset(key string) {
 	}
 }
 
-// GetTempDir returns a temp directory appropriate for the MapEnv. If the
+// GetTempDir returns a temp directory appropriate for the TestEnv. If the
 // receiver is nil this falls back to os.TempDir to avoid panics.
 //
-// The method prefers explicit TMPDIR/TEMP/TMP values stored in the MapEnv.
+// The method prefers explicit TMPDIR/TEMP/TMP values stored in the TestEnv.
 // On Windows it applies a series of fallbacks: LOCALAPPDATA/APPDATA/USERPROFILE,
 // then a home-based default. On Unix-like systems it falls back to /tmp.
 //
@@ -152,56 +199,57 @@ func (m *TestEnv) GetTempDir() string {
 		return os.TempDir()
 	}
 
-	// Prefer explicit TMPDIR/TEMP/TMP if provided in the MapEnv.
+	// Prefer explicit TMPDIR/TEMP/TMP if provided in the TestEnv.
 	if d := m.data["TMPDIR"]; d != "" {
-		return EnsureInJail(m.jail, d)
+		return EnsureInJailFor(m.jail, d)
 	}
 	if d := m.data["TEMP"]; d != "" {
-		return EnsureInJail(m.jail, d)
+		return EnsureInJailFor(m.jail, d)
 	}
 	if d := m.data["TMP"]; d != "" {
-		return EnsureInJail(m.jail, d)
+		return EnsureInJailFor(m.jail, d)
 	}
 
 	// Platform-specific sensible defaults without consulting the real process env.
 	if runtime.GOOS == "windows" {
 		// Prefer LOCALAPPDATA, then APPDATA, then USERPROFILE, then a home-based default.
 		if local := m.data["LOCALAPPDATA"]; local != "" {
-			return EnsureInJail(m.jail, filepath.Join(local, "Temp"))
+			return EnsureInJailFor(m.jail, filepath.Join(local, "Temp"))
 		}
 		if app := m.data["APPDATA"]; app != "" {
-			return EnsureInJail(m.jail, filepath.Join(app, "Temp"))
+			return EnsureInJailFor(m.jail, filepath.Join(app, "Temp"))
 		}
 		if up := m.data["USERPROFILE"]; up != "" {
-			return EnsureInJail(m.jail, filepath.Join(up, "Temp"))
+			return EnsureInJailFor(m.jail, filepath.Join(up, "Temp"))
 		}
 		if m.home != "" {
-			return EnsureInJail(m.jail,
+			return EnsureInJailFor(m.jail,
 				filepath.Join(m.home, "AppData", "Local", "Temp"))
 		}
-		// No information available in MapEnv; return empty string to indicate unknown.
+		// No information available in TestEnv; return empty string to indicate
+		// unknown.
 		return ""
 	}
 
 	// Unix-like: fall back to /tmp which is the conventional system temp dir.
-	return EnsureInJail(m.jail, "/tmp")
+	return EnsureInJailFor(m.jail, "/tmp")
 }
 
-// GetWd returns the MapEnv's PWD value if set, otherwise an error.
+// Getwd returns the TestEnv's PWD value if set, otherwise an error.
 func (m *TestEnv) Getwd() (string, error) {
 	if m == nil {
-		return "", errors.New("wd not set in MapEnv")
+		return "", errors.New("wd not set in TestEnv")
 	}
 	if m.data != nil {
 		if wd := m.data["PWD"]; wd != "" {
 			return wd, nil
 		}
 	}
-	return "", errors.New("wd not set in MapEnv")
+	return "", errors.New("wd not set in TestEnv")
 }
 
-// SetWd sets the MapEnv's PWD value to the provided directory. Calling
-// SetWd on a nil receiver is a no-op.
+// Setwd sets the TestEnv's PWD value to the provided directory. Calling Setwd
+// on a nil receiver is a no-op.
 func (m *TestEnv) Setwd(dir string) {
 	if m == nil {
 		return
@@ -209,10 +257,44 @@ func (m *TestEnv) Setwd(dir string) {
 	if m.data == nil {
 		m.data = make(map[string]string)
 	}
-	m.data["PWD"] = dir
+	m.data["PWD"] = EnsureInJailFor(m.jail, m.ExpandPath(dir))
 }
 
-// NewTestEnv constructs a MapEnv populated with sensible defaults for tests.
+// ReadFile reads the named file from the filesystem view held by this TestEnv.
+// When the receiver is nil the real filesystem is used.
+func (m *TestEnv) ReadFile(name string) ([]byte, error) {
+	if m == nil {
+		return os.ReadFile(name)
+	}
+	return os.ReadFile(EnsureInJail(m.jail, name))
+}
+
+// Remove removes the named file or directory. If all is true RemoveAll is used.
+// When the receiver is nil the real filesystem is affected.
+func (m *TestEnv) Remove(path string, all bool) error {
+	if m == nil {
+		if all {
+			return os.RemoveAll(path)
+		}
+		return os.Remove(path)
+	}
+	p := EnsureInJail(m.jail, path)
+	if all {
+		return os.RemoveAll(p)
+	}
+	return os.Remove(p)
+}
+
+// Rename renames (moves) a file or directory. When the receiver is nil the
+// operation is performed on the real filesystem.
+func (m *TestEnv) Rename(src string, dst string) error {
+	if m == nil {
+		return os.Rename(src, dst)
+	}
+	return os.Rename(EnsureInJail(m.jail, src), EnsureInJail(m.jail, dst))
+}
+
+// NewTestEnv constructs a TestEnv populated with sensible defaults for tests.
 // It sets HOME and USER and also sets platform-specific variables so functions
 // that prefer XDG_* (Unix) or APPDATA/LOCALAPPDATA (Windows) will pick them up.
 //
@@ -221,13 +303,19 @@ func (m *TestEnv) Setwd(dir string) {
 //   - username defaults to "testuser"
 //
 // The function does not create any directories on disk; it only sets the
-// environment values in the returned MapEnv.
+// environment values in the returned TestEnv.
 func NewTestEnv(jail, home, username string) *TestEnv {
+	var user string
 	if username == "" {
-		username = "testuser"
+		user = "testuser"
 	}
-	if home == "" {
-		home = EnsureInJail(jail, home)
+
+	if home == "" && user == "root" {
+		home = EnsureInJailFor(jail, filepath.Join("/", ".root"))
+	} else if home == "" {
+		home = EnsureInJailFor(jail, filepath.Join("/", "home", user))
+	} else {
+		home = EnsureInJailFor(jail, home)
 	}
 
 	m := &TestEnv{
@@ -241,7 +329,7 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	m.data["HOME"] = home
 	m.data["USER"] = username
 
-	m.data["PWD"] = jail
+	m.data["PWD"] = home
 
 	// Populate platform-specific defaults so callers that query these keys get
 	// consistent results in tests.
@@ -268,17 +356,56 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	return m
 }
 
+// Mkdir creates a directory. If all is true MkdirAll is used.
 func (m *TestEnv) Mkdir(path string, perm os.FileMode, all bool) error {
+	p := EnsureInJail(m.jail, m.ExpandPath(path))
 	if all {
-		return os.MkdirAll(EnsureInJail(m.jail, path), perm)
+		return os.MkdirAll(EnsureInJail(m.jail, p), perm)
 	}
 	return os.Mkdir(EnsureInJail(m.jail, path), perm)
 }
 
+// WriteFile writes data to a file in the filesystem view held by this TestEnv.
 func (m *TestEnv) WriteFile(name string, data []byte, perm os.FileMode) error {
-	return os.WriteFile(EnsureInJail(m.jail, name), data, perm)
+	path := EnsureInJail(m.jail, m.ExpandPath(name))
+	return os.WriteFile(path, data, perm)
 }
 
+// Root returns the configured jail root for this TestEnv.
 func (m *TestEnv) Root() string {
 	return m.jail
+}
+
+// ExpandPath expands a leading tilde in the provided path to the user's
+// home directory obtained from the Env stored in ctx. Supported forms:
+//
+//	"~"
+//	"~/rest/of/path"
+//	"~\rest\of\path" (Windows)
+//
+// If the home directory cannot be obtained from the environment an error is
+// returned. If the path does not start with a tilde it is returned unchanged.
+func (m *TestEnv) ExpandPath(p string) string {
+	if p == "" {
+		return p
+	}
+	if p[0] != '~' {
+		return p
+	}
+
+	// Only expand the simple leading-tilde forms: "~" or "~/" or "~\"
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		home, _ := m.GetHome()
+		if p == "~" {
+			return filepath.Clean(home)
+		}
+		// Trim the "~/" or "~\" prefix and join with home to produce a
+		// well-formed path.
+		rest := p[2:]
+		return filepath.Join(home, rest)
+	}
+
+	// More complex cases like "~username/..." are not supported and are
+	// returned unchanged.
+	return p
 }

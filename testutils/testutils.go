@@ -15,7 +15,7 @@ import (
 	std "github.com/jlrickert/go-std/pkg"
 )
 
-// FixtureOption modifies a Fixture during construction.
+// FixtureOption is a function used to modify a Fixture during construction.
 type FixtureOption func(f *Fixture)
 
 // Fixture bundles common test setup used by package tests. It contains a
@@ -37,30 +37,40 @@ type Fixture struct {
 	Jail string
 }
 
+// FixtureOptions holds optional settings provided to NewFixture.
+type FixtureOptions struct {
+	Data embed.FS
+	// Home is the home for the user. If empty defaults to /home/$USER.
+	// If the user is root the default is /.root.
+	Home string
+	// User is the user. Defaults to testuser.
+	User string
+}
+
 // NewFixture constructs a Fixture and applies given options. Cleanup is
 // registered with t.Cleanup so callers do not need to call a cleanup func.
-func NewFixture(t *testing.T, data embed.FS, opts ...FixtureOption) *Fixture {
-	t.Helper()
-
+func NewFixture(t *testing.T, options *FixtureOptions, opts ...FixtureOption) *Fixture {
 	jail := t.TempDir()
+
+	var home string
+	var user string
+	var data embed.FS
+	if options != nil {
+		home = options.Home
+		user = options.User
+		data = options.Data
+	}
+	env := std.NewTestEnv(jail, home, user)
 	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
-	env := std.NewTestEnv(jail, filepath.Join("home", "testuser"), "testuser")
 	clock := std.NewTestClock(time.Now())
 	hasher := &std.MD5Hasher{}
 
-	env.Setwd(jail)
-
 	// Populate common temp env vars.
-	tmp := filepath.Join(jail, "tmp")
-	_ = env.Set("TMPDIR", tmp) // preferred on Unix/macOS
-	_ = env.Set("TMP", tmp)
-	_ = env.Set("TEMP", tmp)
-	_ = env.Set("TEMPDIR", tmp)
-
-	ctx := context.Background()
+	ctx := t.Context()
 	ctx = std.WithLogger(ctx, lg)
 	ctx = std.WithEnv(ctx, env)
 	ctx = std.WithClock(ctx, clock)
+	ctx = std.WithHasher(ctx, hasher)
 
 	f := &Fixture{
 		t:      t,
@@ -97,6 +107,14 @@ func WithEnv(key, val string) FixtureOption {
 	}
 }
 
+// WithWd returns a FixtureOption that sets the fixture working directory.
+func WithWd(path string) FixtureOption {
+	return func(f *Fixture) {
+		f.t.Helper()
+		f.env.Setwd(path)
+	}
+}
+
 // WithClock sets the test clock to the provided time.
 func WithClock(t0 time.Time) FixtureOption {
 	return func(f *Fixture) {
@@ -105,21 +123,6 @@ func WithClock(t0 time.Time) FixtureOption {
 			f.t.Fatalf("WithClock: fixture Clock is nil")
 		}
 		f.clock.Set(t0)
-	}
-}
-
-// WithTempDir creates a t.TempDir and sets it on the fixture. If setAsHome is
-// true the temp dir is also set as HOME in the fixture env.
-func WithTempDir(setAsHome bool) FixtureOption {
-	return func(f *Fixture) {
-		f.t.Helper()
-		tmp := f.t.TempDir()
-		f.Jail = tmp
-		if setAsHome {
-			if err := f.env.SetHome(tmp); err != nil {
-				f.t.Fatalf("WithTempDir SetHome failed: %v", err)
-			}
-		}
 	}
 }
 
@@ -138,17 +141,18 @@ func WithEnvMap(m map[string]string) FixtureOption {
 // WithFixture copies a fixture directory from the embedded package data into
 // the provided path within the fixture Jail. Example fixtures are "empty" or
 // "example".
-func WithFixture(fixture string, pathArg string) FixtureOption {
+func WithFixture(fixture string, path string) FixtureOption {
 	return func(f *Fixture) {
 		f.t.Helper()
 
 		// Source is the embedded package data directory.
-		src := path.Join("data", fixture)
+		src := filepath.Join("data", fixture)
 		if _, err := iofs.Stat(f.data, src); err != nil {
 			f.t.Fatalf("WithFileKeg: source %s not found: %v", src, err)
 		}
 
-		dst := filepath.Join(f.Jail, pathArg)
+		p, _ := std.ExpandPath(f.Context(), path)
+		dst := std.EnsureInJailFor(f.Jail, p)
 		if err := copyEmbedDir(f.data, src, dst); err != nil {
 			f.t.Fatalf("WithFileKeg: copy %s -> %s failed: %v", src, dst, err)
 		}
@@ -160,14 +164,15 @@ func WithFixture(fixture string, pathArg string) FixtureOption {
 // returns the absolute form of rel.
 func (f *Fixture) AbsPath(rel string) string {
 	f.t.Helper()
-	if filepath.IsAbs(rel) || f.Jail == "" {
-		abs, err := filepath.Abs(rel)
+	p, _ := std.ExpandPath(f.Context(), rel)
+	if filepath.IsAbs(p) || f.Jail == "" {
+		abs, err := filepath.Abs(p)
 		if err != nil {
 			f.t.Fatalf("AbsPath failed: %v", err)
 		}
 		return abs
 	}
-	return std.AbsPath(f.ctx, filepath.Join(f.Jail, rel))
+	return std.AbsPath(f.ctx, filepath.Join(f.Jail, p))
 }
 
 // Context returns the fixture context.
@@ -182,8 +187,12 @@ func (f *Fixture) ReadJailFile(path string) ([]byte, error) {
 	if f.Jail == "" {
 		return nil, fmt.Errorf("no jail set")
 	}
-	p := std.EnsureInJail(f.Jail, path)
-	return os.ReadFile(p)
+	path, err := std.ExpandPath(f.Context(), path)
+	if err != nil {
+		return nil, err
+	}
+	path = std.EnsureInJail(f.Jail, path)
+	return f.env.ReadFile(path)
 }
 
 // MustReadJailFile reads a file under the Jail and fails the test on error.
@@ -196,6 +205,14 @@ func (f *Fixture) MustReadJailFile(rel string) []byte {
 	return b
 }
 
+// ResolvePath returns a resolved path under the fixture Jail. It does not
+// consult the real filesystem; it merely ensures the path is located within
+// the Jail when possible.
+func (f *Fixture) ResolvePath(path string) string {
+	p, _ := std.ExpandPath(f.Context(), path)
+	return std.EnsureInJail(f.Jail, p)
+}
+
 // WriteJailFile writes data to a path under the fixture Jail, creating parent
 // directories as needed. perm is applied to the file.
 func (f *Fixture) WriteJailFile(path string, data []byte, perm os.FileMode) error {
@@ -203,12 +220,8 @@ func (f *Fixture) WriteJailFile(path string, data []byte, perm os.FileMode) erro
 	if f.Jail == "" {
 		return fmt.Errorf("no jail set")
 	}
-	p := std.EnsureInJail(f.Jail, path)
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(p, data, perm)
+	p := f.ResolvePath(path)
+	return std.AtomicWriteFile(f.Context(), p, data, perm)
 }
 
 // MustWriteJailFile writes data under the Jail and fails the test on error.
@@ -239,17 +252,16 @@ func (f *Fixture) DumpJailTree(maxDepth int) {
 			f.t.Logf("  error: %v", err)
 			return nil
 		}
-		rel, err := filepath.Rel(f.Jail, p)
-		if err != nil {
-			rel = p
+		var path string
+		if p == "." {
+			path = "/"
+		} else {
+			path = std.ResolvePath(f.Context(), p)
 		}
-		// Normalize current dir.
-		if rel == "." {
-			rel = "."
-		}
+
 		// Apply depth limit when requested.
-		if maxDepth > 0 && rel != "." {
-			depth := strings.Count(rel, string(os.PathSeparator)) + 1
+		if maxDepth > 0 {
+			depth := strings.Count(path, string(os.PathSeparator)) + 1
 			if depth > maxDepth {
 				if d.IsDir() {
 					return filepath.SkipDir
@@ -261,7 +273,7 @@ func (f *Fixture) DumpJailTree(maxDepth int) {
 		if d.IsDir() {
 			suffix = "/"
 		}
-		f.t.Logf("  %s%s", rel, suffix)
+		f.t.Logf("  %s%s", path, suffix)
 		return nil
 	})
 	if err != nil {
@@ -269,12 +281,22 @@ func (f *Fixture) DumpJailTree(maxDepth int) {
 	}
 }
 
+// Advance advances the fixture test clock by the given duration.
 func (f *Fixture) Advance(d time.Duration) {
+	f.t.Helper()
 	f.clock.Advance(d)
 }
 
+// Now returns the current time from the fixture test clock.
 func (f *Fixture) Now() time.Time {
+	f.t.Helper()
 	return f.clock.Now()
+}
+
+func (f *Fixture) Getwd() string {
+	f.t.Helper()
+	wd, _ := f.env.Getwd()
+	return wd
 }
 
 // copyEmbedDir recursively copies a directory tree from an embedded FS to dst.

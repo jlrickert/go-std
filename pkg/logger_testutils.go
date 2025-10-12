@@ -55,6 +55,10 @@ func (h *TestHandler) Handle(ctx context.Context, r slog.Record) error {
 		Msg:   r.Message,
 		Attrs: map[string]any{},
 	}
+	r.Attrs(func(a slog.Attr) bool {
+		e.Attrs[a.Key] = a.Value.Any()
+		return true
+	})
 	h.mu.Lock()
 	h.Entries = append(h.Entries, e)
 	h.mu.Unlock()
