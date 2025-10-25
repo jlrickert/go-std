@@ -1,26 +1,77 @@
 package std
 
 import (
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
 )
 
-// OsEnv implements Env by delegating to the real process environment.
-// Use this in production code.
+// OsEnv is an Env implementation that delegates to the real process
+// environment and filesystem. Use this in production code where access to the
+// actual OS environment is required.
 type OsEnv struct{}
+
+// IsStdioPiped reports whether stdin appears to be piped or redirected.
+//
+// It performs a lightweight metadata check: when stdin is not a character
+// device the function returns true. This is a common, portable heuristic used
+// to detect piped input.
+func (o *OsEnv) IsStdioPiped() bool {
+	// Use the package helper to detect whether stdin is coming from a pipe
+	// or redirect (not a character device).
+	return StdinHasData(os.Stdin)
+}
+
+// IsStdoutPiped reports whether stdout appears to be piped or redirected.
+//
+// It inspects the stdout file mode and returns true when stdout is not a
+// character device.
+func (o *OsEnv) IsStdoutPiped() bool {
+	// Inspect stdout file mode; if it is not a char device it is likely piped.
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) == 0
+}
+
+// IsTTY reports whether stdout is connected to an interactive terminal.
+//
+// This uses IsInteractiveTerminal to determine TTY state for the process.
+func (o *OsEnv) IsTTY() bool {
+	// Consider stdout to determine TTY state for the process.
+	return IsInteractiveTerminal(os.Stdout)
+}
+
+// Stderr returns the process stderr writer.
+func (o *OsEnv) Stderr() io.Writer {
+	return os.Stderr
+}
+
+// Stdio returns the process stdin reader.
+func (o *OsEnv) Stdio() io.Reader {
+	return os.Stdin
+}
+
+// Stdout returns the process stdout writer.
+func (o *OsEnv) Stdout() io.Writer {
+	return os.Stdout
+}
 
 // Ensure implementations satisfy the interfaces.
 var _ Env = (*OsEnv)(nil)
 
-// GetHome returns the OS-reported user home directory.
+// GetHome returns the home directory reported by the OS. It delegates to
+// os.UserHomeDir.
 func (o *OsEnv) GetHome() (string, error) {
 	return os.UserHomeDir()
 }
 
 // SetHome sets environment values that represent the user's home directory.
-// On Windows it sets USERPROFILE in addition to HOME to satisfy common callers.
+//
+// On Windows it also sets USERPROFILE to satisfy common callers.
 func (o *OsEnv) SetHome(home string) error {
 	if runtime.GOOS == "windows" {
 		if err := os.Setenv("USERPROFILE", home); err != nil {
@@ -30,8 +81,8 @@ func (o *OsEnv) SetHome(home string) error {
 	return os.Setenv("HOME", home)
 }
 
-// GetUser returns the current OS user username. If Username is empty it falls
-// back to the user's Name field.
+// GetUser returns the current OS user username. If the Username field is
+// empty it falls back to the user's Name field.
 func (o *OsEnv) GetUser() (string, error) {
 	u, err := user.Current()
 	if err != nil {
@@ -44,8 +95,9 @@ func (o *OsEnv) GetUser() (string, error) {
 	return u.Name, nil
 }
 
-// SetUser sets environment values that represent the current user. On
-// Windows it sets USERNAME in addition to USER.
+// SetUser sets environment values that represent the current user.
+//
+// On Windows it also sets USERNAME in addition to USER.
 func (o *OsEnv) SetUser(username string) error {
 	if runtime.GOOS == "windows" {
 		if err := os.Setenv("USERNAME", username); err != nil {
@@ -60,7 +112,7 @@ func (o *OsEnv) Get(key string) string {
 	return os.Getenv(key)
 }
 
-// Set sets the OS environment variable.
+// Set sets the OS environment variable key to value.
 func (o *OsEnv) Set(key string, value string) error {
 	return os.Setenv(key, value)
 }
@@ -91,8 +143,10 @@ func (o *OsEnv) Getwd() (string, error) {
 	return os.Getwd()
 }
 
-// Setwd attempts to change the process working directory to dir. It also
-// attempts to update PWD. Chdir errors are intentionally ignored here.
+// Setwd attempts to change the process working directory to dir.
+//
+// It also attempts to update PWD. Chdir errors are intentionally ignored to
+// avoid surprising callers.
 func (o *OsEnv) Setwd(dir string) {
 	p, _ := filepath.Abs(dir)
 	// _ = os.Setenv("PWD", p)
@@ -110,7 +164,8 @@ func (o *OsEnv) WriteFile(name string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(name, data, perm)
 }
 
-// Remove removes the named file.
+// Remove removes the named file or directory. If all is true all items in the
+// path are removed.
 func (o *OsEnv) Remove(path string, all bool) error {
 	if all {
 		return os.RemoveAll(path)

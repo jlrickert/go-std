@@ -1,9 +1,11 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	iofs "io/fs"
 	"os"
 	"path"
@@ -35,6 +37,13 @@ type Fixture struct {
 	// Optional runtime state. Jail is a temporary directory that acts as the
 	// root filesystem for file-based test fixtures.
 	Jail string
+
+	// Streamed inputs
+	inPipeReader *io.PipeReader
+	inPipeWriter *io.PipeWriter
+
+	outBuf *bytes.Buffer
+	errBuf *bytes.Buffer
 }
 
 // FixtureOptions holds optional settings provided to NewFixture.
@@ -61,8 +70,24 @@ func NewFixture(t *testing.T, options *FixtureOptions, opts ...FixtureOption) *F
 		data = options.Data
 	}
 	env := std.NewTestEnv(jail, home, user)
+
+	// Create a single pipe for the fixture stdin which can be written to multiple
+	// times by tests calling WriteToStdin.
+	pr, pw := io.Pipe()
+
+	// Default to not piped; tests may opt-in via WithStdinPiped or WriteToStdin.
+	env.SetStdioPiped(false)
+	env.SetTTY(false)
+
+	outBuf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+
+	env.SetStdio(pr)
+	env.SetStdout(outBuf)
+	env.SetStderr(errBuf)
+
 	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
-	clock := std.NewTestClock(time.Now())
+	clock := std.NewTestClock(time.Date(2025, 10, 15, 12, 30, 0, 0, time.UTC))
 	hasher := &std.MD5Hasher{}
 
 	// Populate common temp env vars.
@@ -73,14 +98,18 @@ func NewFixture(t *testing.T, options *FixtureOptions, opts ...FixtureOption) *F
 	ctx = std.WithHasher(ctx, hasher)
 
 	f := &Fixture{
-		t:      t,
-		ctx:    ctx,
-		data:   data,
-		logger: handler,
-		hasher: hasher,
-		env:    env,
-		clock:  clock,
-		Jail:   jail,
+		t:            t,
+		ctx:          ctx,
+		data:         data,
+		logger:       handler,
+		hasher:       hasher,
+		env:          env,
+		clock:        clock,
+		Jail:         jail,
+		inPipeReader: pr,
+		inPipeWriter: pw,
+		outBuf:       outBuf,
+		errBuf:       errBuf,
 	}
 
 	// Apply options.
@@ -159,20 +188,38 @@ func WithFixture(fixture string, path string) FixtureOption {
 	}
 }
 
+// WithTTY returns a FixtureOption that sets whether stdout should be treated as
+// a terminal for the TestEnv. It ensures the underlying Stream is initialized.
+func WithTTY(v bool) FixtureOption {
+	return func(f *Fixture) {
+		f.t.Helper()
+		if f.env == nil {
+			f.t.Fatalf("WithTTY: fixture Env is nil")
+		}
+		f.env.SetTTY(v)
+	}
+}
+
+// WithStdinPiped returns a FixtureOption that sets whether stdin should be
+// considered piped/redirected for the TestEnv. It ensures the Stream is
+// initialized.
+func WithStdinPiped(v bool) FixtureOption {
+	return func(f *Fixture) {
+		f.t.Helper()
+		if f.env == nil {
+			f.t.Fatalf("WithStdinPiped: fixture Env is nil")
+		}
+		f.env.SetStdioPiped(v)
+	}
+}
+
 // AbsPath returns an absolute path. When the fixture Jail is set and rel is
 // relative the path is made relative to the Jail. Otherwise the function
 // returns the absolute form of rel.
 func (f *Fixture) AbsPath(rel string) string {
 	f.t.Helper()
 	p, _ := std.ExpandPath(f.Context(), rel)
-	if filepath.IsAbs(p) || f.Jail == "" {
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			f.t.Fatalf("AbsPath failed: %v", err)
-		}
-		return abs
-	}
-	return std.AbsPath(f.ctx, filepath.Join(f.Jail, p))
+	return std.EnsureInJailFor(f.Jail, std.AbsPath(f.Context(), p))
 }
 
 // Context returns the fixture context.
@@ -184,9 +231,7 @@ func (f *Fixture) Context() context.Context {
 // interpreted relative to the Jail root.
 func (f *Fixture) ReadJailFile(path string) ([]byte, error) {
 	f.t.Helper()
-	path = f.env.ExpandPath(path)
-	path = std.EnsureInJail(f.Jail, path)
-	return f.env.ReadFile(path)
+	return std.ReadFile(f.Context(), f.AbsPath(path))
 }
 
 // MustReadJailFile reads a file under the Jail and fails the test on error.
@@ -199,12 +244,76 @@ func (f *Fixture) MustReadJailFile(rel string) []byte {
 	return b
 }
 
+// ReadStdout returns the current contents written to the fixture stdout
+// capture file. It reads the entire file and returns the bytes.
+func (f *Fixture) ReadStdout() []byte {
+	f.t.Helper()
+	return f.outBuf.Bytes()
+}
+
+// MustReadStdout reads the fixture stdout capture and fails the test on error.
+func (f *Fixture) MustReadStdout() []byte {
+	f.t.Helper()
+	b := f.ReadStdout()
+	if len(b) == 0 {
+		f.t.Fatalf("MustReadStdout must read content")
+	}
+	return b
+}
+
+// ReadStderr returns the current contents written to the fixture stderr
+func (f *Fixture) ReadStderr() []byte {
+	f.t.Helper()
+	return f.errBuf.Bytes()
+}
+
+// MustReadStdout reads the fixture stdout capture and fails the test on error.
+func (f *Fixture) MustReadStderr() []byte {
+	f.t.Helper()
+	b := f.ReadStderr()
+	if len(b) == 0 {
+		f.t.Fatalf("MustReadStderr must read content")
+	}
+	return b
+}
+
+// Stdin returns the reader used as the fixture stdin. If the fixture stdin is
+// not initialized it falls back to the real process stdin.
+func (f *Fixture) Stdin() io.Reader {
+	f.t.Helper()
+	if f.inPipeReader == nil {
+		return os.Stdin
+	}
+	return f.inPipeReader
+}
+
+// Stdout returns the writer capturing fixture stdout. If not initialized it
+// falls back to os.Stdout.
+func (f *Fixture) Stdout() io.Writer {
+	f.t.Helper()
+	if f.outBuf == nil {
+		return os.Stdout
+	}
+	return f.outBuf
+}
+
+// Stderr returns the writer capturing fixture stderr. If not initialized it
+// falls back to os.Stderr.
+func (f *Fixture) Stderr() io.Writer {
+	f.t.Helper()
+	if f.errBuf == nil {
+		return os.Stderr
+	}
+	return f.errBuf
+}
+
 // ResolvePath returns a resolved path under the fixture Jail. It does not
 // consult the real filesystem; it merely ensures the path is located within
 // the Jail when possible.
 func (f *Fixture) ResolvePath(path string) string {
+	f.t.Helper()
 	p, _ := std.ExpandPath(f.Context(), path)
-	return std.EnsureInJail(f.Jail, p)
+	return std.EnsureInJailFor(f.Jail, p)
 }
 
 // WriteJailFile writes data to a path under the fixture Jail, creating parent
@@ -227,8 +336,16 @@ func (f *Fixture) MustWriteJailFile(path string, data []byte, perm os.FileMode) 
 }
 
 func (f *Fixture) cleanup() {
-	// Reserved for future teardown. Stop mocks or remove long-lived artifacts
-	// here if needed.
+	// Close the shared stdin writer and restore Stream defaults.
+	f.inPipeReader.Close()
+	f.inPipeWriter.Close()
+	if f.env != nil {
+		f.env.SetStdioPiped(false)
+		f.env.SetTTY(false)
+		f.env.SetStdio(nil)
+		f.env.SetStdout(nil)
+		f.env.SetStderr(nil)
+	}
 }
 
 // DumpJailTree logs a tree of files rooted at the fixture's Jail. maxDepth
@@ -291,6 +408,21 @@ func (f *Fixture) Getwd() string {
 	f.t.Helper()
 	wd, _ := f.env.Getwd()
 	return wd
+}
+
+// WriteToStdin writes the provided initial content to the fixture stdin
+// writer and returns the writer so tests can write more if desired.
+//
+// The fixture creates a pipe in NewFixture and reuses the writer for multiple
+// calls, so repeated WriteToStdin calls are supported.
+func (f *Fixture) WriteToStdin(data []byte) (int, error) {
+	f.t.Helper()
+
+	return f.inPipeWriter.Write(data)
+}
+
+func (f *Fixture) CloseStdin() error {
+	return f.inPipeWriter.Close()
 }
 
 // copyEmbedDir recursively copies a directory tree from an embedded FS to dst.

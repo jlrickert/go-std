@@ -111,13 +111,43 @@ func TestExpandEnv(t *testing.T) {
 	assert.Equal(t, "osval", got3)
 }
 
-// Tests for working directory handling in MapEnv and OsEnv.
-func TestTestEnvGetwdMissing(t *testing.T) {
-	var m std.TestEnv
-	_, err := m.Getwd()
-	require.Error(t, err)
+func TestSetwdRemainsInJail(t *testing.T) {
+	jail := t.TempDir()
 
-	var mnil *std.TestEnv = nil
-	_, err = mnil.Getwd()
-	require.Error(t, err)
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{
+			name: "relative path placed in jail",
+			in:   "foo/bar",
+		},
+		{
+			name: "absolute path already inside jail",
+			in:   filepath.Join(jail, "sub"),
+		},
+		{
+			name: "absolute path outside jail falls back to jail base",
+			in:   filepath.FromSlash("/other/path/file.txt"),
+		},
+		{
+			name: "empty input returns jail",
+			in:   "",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			env := std.NewTestEnv(jail, "", "")
+			// Use Setwd which is the code path for PWD handling.
+			env.Setwd(filepath.FromSlash(c.in))
+
+			got, err := env.Getwd()
+			require.NoError(t, err)
+
+			want := filepath.Clean(std.EnsureInJail(jail, filepath.FromSlash(c.in)))
+			assert.Equal(t, want, filepath.Clean(got))
+		})
+	}
 }
