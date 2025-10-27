@@ -3,6 +3,7 @@ package std
 import (
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,7 +27,7 @@ type TestEnv struct {
 }
 
 // NewTestEnv constructs a TestEnv populated with sensible defaults for tests.
-// It sets HOME and USER and also sets platform-specific variables so functions
+// It sets HOME and USER and also sets platform specific variables so functions
 // that prefer XDG_* on Unix or APPDATA/LOCALAPPDATA on Windows will pick them
 // up.
 //
@@ -64,7 +65,7 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	m.data["USER"] = username
 	m.data["PWD"] = home
 
-	// Populate platform-specific defaults so callers that query these keys get
+	// Populate platform specific defaults so callers that query these keys get
 	// consistent results in tests.
 	if runtime.GOOS == "windows" {
 		// Windows conventions: APPDATA (Roaming) and LOCALAPPDATA (Local).
@@ -74,7 +75,7 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 		m.data["LOCALAPPDATA"] = local
 		m.data["TMPDIR"] = filepath.Join(local, "Temp")
 	} else {
-		// Unix-like conventions: XDG_* fallbacks under the home directory.
+		// Unix like conventions: XDG_* fallbacks under the home directory.
 		xdgConfig := filepath.Join(home, ".config")
 		xdgCache := filepath.Join(home, ".cache")
 		xdgData := filepath.Join(home, ".local", "share")
@@ -89,7 +90,8 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	return m
 }
 
-// IsStdioPiped implements Env.
+// IsStdioPiped reports whether stdin should be considered piped for this env.
+// It implements Env.
 func (m *TestEnv) IsStdioPiped() bool {
 	if m.stream == nil {
 		return false
@@ -97,6 +99,7 @@ func (m *TestEnv) IsStdioPiped() bool {
 	return m.stream.IsPiped
 }
 
+// IsTTY reports whether stdout should be considered a terminal for this env.
 func (m *TestEnv) IsTTY() bool {
 	if m.stream == nil {
 		return false
@@ -104,6 +107,8 @@ func (m *TestEnv) IsTTY() bool {
 	return m.stream.IsTTY
 }
 
+// Stdio returns the configured stdin reader for this env. If no reader is
+// configured it falls back to os.Stdin.
 func (m *TestEnv) Stdio() io.Reader {
 	if m.stream == nil || m.stream.In == nil {
 		return os.Stdin
@@ -111,6 +116,8 @@ func (m *TestEnv) Stdio() io.Reader {
 	return m.stream.In
 }
 
+// Stdout returns the configured stdout writer for this env. If no writer is
+// configured it falls back to os.Stdout.
 func (m *TestEnv) Stdout() io.Writer {
 	if m.stream == nil || m.stream.Out == nil {
 		return os.Stdout
@@ -118,6 +125,8 @@ func (m *TestEnv) Stdout() io.Writer {
 	return m.stream.Out
 }
 
+// Stderr returns the configured stderr writer for this env. If no writer is
+// configured it falls back to os.Stderr.
 func (m *TestEnv) Stderr() io.Writer {
 	if m.stream == nil || m.stream.Err == nil {
 		return os.Stderr
@@ -125,21 +134,17 @@ func (m *TestEnv) Stderr() io.Writer {
 	return m.stream.Err
 }
 
-// Helper methods for managing stdio and associated flags. These make it easy
-// for tests to configure TestEnv programmatically. All methods assume the
-// receiver is non-nil.
-
-// SetStdio sets the input reader used by Stdio.
+// SetStdio configures the input reader returned by Stdio.
 func (m *TestEnv) SetStdio(r io.Reader) {
 	m.stream.In = r
 }
 
-// SetStdout sets the writer returned by Stdout.
+// SetStdout configures the writer returned by Stdout.
 func (m *TestEnv) SetStdout(w io.Writer) {
 	m.stream.Out = w
 }
 
-// SetStderr sets the writer returned by Stderr.
+// SetStderr configures the writer returned by Stderr.
 func (m *TestEnv) SetStderr(w io.Writer) {
 	m.stream.Err = w
 }
@@ -149,7 +154,7 @@ func (m *TestEnv) SetStdioPiped(v bool) {
 	m.stream.IsPiped = v
 }
 
-// SetTTY sets whether stdout should be considered a TTY.
+// SetTTY sets whether stdout should be considered a terminal.
 func (m *TestEnv) SetTTY(v bool) {
 	m.stream.IsTTY = v
 }
@@ -169,7 +174,7 @@ func (m *TestEnv) GetHome() (string, error) {
 	return m.home, nil
 }
 
-// SetHome sets the TestEnv's home directory and updates the "HOME" key in the
+// SetHome sets the TestEnv home directory and updates the "HOME" key in the
 // underlying map for callers that read via Get.
 func (m *TestEnv) SetHome(home string) error {
 	m.home = EnsureInJailFor(m.jail, home)
@@ -188,7 +193,7 @@ func (m *TestEnv) GetUser() (string, error) {
 	return m.user, nil
 }
 
-// SetUser sets the TestEnv's current user and updates the "USER" key in the
+// SetUser sets the TestEnv current user and updates the "USER" key in the
 // underlying map for callers that use Get.
 func (m *TestEnv) SetUser(username string) error {
 	m.user = username
@@ -306,7 +311,7 @@ func (m *TestEnv) Unset(key string) {
 //
 // The method prefers explicit TMPDIR/TEMP/TMP values stored in the TestEnv.
 // On Windows it applies a series of fallbacks: LOCALAPPDATA, APPDATA,
-// USERPROFILE, then a home-based default. On Unix-like systems it falls back
+// USERPROFILE, then a home based default. On Unix like systems it falls back
 // to /tmp.
 //
 // The returned path will be adjusted to reside inside the configured jail
@@ -323,9 +328,9 @@ func (m *TestEnv) GetTempDir() string {
 		return EnsureInJailFor(m.jail, d)
 	}
 
-	// Platform-specific sensible defaults without consulting the real process env.
+	// Platform specific sensible defaults without consulting the real process env.
 	if runtime.GOOS == "windows" {
-		// Prefer LOCALAPPDATA, then APPDATA, then USERPROFILE, then a home-based
+		// Prefer LOCALAPPDATA, then APPDATA, then USERPROFILE, then a home based
 		// default.
 		if local := m.data["LOCALAPPDATA"]; local != "" {
 			return EnsureInJailFor(m.jail, filepath.Join(local, "Temp"))
@@ -345,7 +350,7 @@ func (m *TestEnv) GetTempDir() string {
 		return ""
 	}
 
-	// Unix-like: fall back to /tmp which is the conventional system temp dir.
+	// Unix like: fall back to /tmp which is the conventional system temp dir.
 	return EnsureInJailFor(m.jail, "/tmp")
 }
 
@@ -391,11 +396,11 @@ func (m *TestEnv) Rename(src string, dst string) error {
 
 // Mkdir creates a directory. If all is true MkdirAll is used.
 func (m *TestEnv) Mkdir(path string, perm os.FileMode, all bool) error {
-	p := EnsureInJail(m.jail, m.ExpandPath(path))
+	p := EnsureInJailFor(m.jail, m.ExpandPath(path))
 	if all {
-		return os.MkdirAll(EnsureInJail(m.jail, p), perm)
+		return os.MkdirAll(EnsureInJailFor(m.jail, p), perm)
 	}
-	return os.Mkdir(EnsureInJail(m.jail, path), perm)
+	return os.Mkdir(EnsureInJailFor(m.jail, path), perm)
 }
 
 // WriteFile writes data to a file in the filesystem view held by this TestEnv.
@@ -409,16 +414,16 @@ func (m *TestEnv) Root() string {
 	return m.jail
 }
 
-// ExpandPath expands a leading tilde in the provided path to the TestEnv's
-// configured home directory. Supported forms:
+// ExpandPath expands a leading tilde in the provided path to the TestEnv home.
+// Supported forms:
 //
 //	"~"
 //	"~/rest/of/path"
 //	"~\rest\of\path" (Windows)
 //
-// If the path does not start with a tilde it is returned unchanged. This
-// method uses the TestEnv's GetHome value. If home is not set, expansion may
-// produce an empty or unexpected result.
+// If the path does not start with a tilde it is returned unchanged. This method
+// uses the TestEnv GetHome value. If home is not set, expansion may produce
+// an empty or unexpected result.
 func (m *TestEnv) ExpandPath(p string) string {
 	if p == "" {
 		return p
@@ -427,14 +432,14 @@ func (m *TestEnv) ExpandPath(p string) string {
 		return p
 	}
 
-	// Only expand the simple leading-tilde forms: "~" or "~/" or "~\"
+	// Only expand the simple leading tilde forms: "~" or "~/" or "~\"
 	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
 		home, _ := m.GetHome()
 		if p == "~" {
 			return filepath.Clean(home)
 		}
 		// Trim the "~/" or "~\" prefix and join with home to produce a
-		// well-formed path.
+		// well formed path.
 		rest := p[2:]
 		return filepath.Join(home, rest)
 	}
@@ -442,4 +447,37 @@ func (m *TestEnv) ExpandPath(p string) string {
 	// More complex cases like "~username/..." are not supported and are
 	// returned unchanged.
 	return p
+}
+
+// Clone returns a copy of the TestEnv so tests can modify the returned
+// environment without mutating the original. It deep copies the internal map
+// and makes a copy of the Stream struct.
+func (m *TestEnv) Clone() *TestEnv {
+	if m == nil {
+		return nil
+	}
+
+	var dataCopy map[string]string
+	if m.data != nil {
+		dataCopy = make(map[string]string, len(m.data))
+		maps.Copy(dataCopy, m.data)
+	}
+
+	stream := &Stream{}
+	if m.stream != nil {
+		s := *m.stream
+		stream.In = s.In
+		stream.Out = s.Out
+		stream.Err = s.Err
+		stream.IsPiped = s.IsPiped
+		stream.IsTTY = s.IsTTY
+	}
+
+	return &TestEnv{
+		jail:   m.jail,
+		home:   m.home,
+		user:   m.user,
+		data:   dataCopy,
+		stream: stream,
+	}
 }
