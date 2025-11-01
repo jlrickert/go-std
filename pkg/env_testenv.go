@@ -2,7 +2,6 @@ package std
 
 import (
 	"errors"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -22,8 +21,6 @@ type TestEnv struct {
 	home string
 	user string
 	data map[string]string
-
-	stream *Stream
 }
 
 // NewTestEnv constructs a TestEnv populated with sensible defaults for tests.
@@ -52,11 +49,10 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	}
 
 	m := &TestEnv{
-		jail:   jail,
-		home:   home,
-		user:   username,
-		data:   make(map[string]string),
-		stream: &Stream{},
+		jail: jail,
+		home: home,
+		user: username,
+		data: make(map[string]string),
 	}
 
 	// Always expose HOME and USER through the map as well for callers that read
@@ -89,78 +85,6 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 
 	return m
 }
-
-// IsStdioPiped reports whether stdin should be considered piped for this env.
-// It implements Env.
-func (m *TestEnv) IsStdioPiped() bool {
-	if m.stream == nil {
-		return false
-	}
-	return m.stream.IsPiped
-}
-
-// IsTTY reports whether stdout should be considered a terminal for this env.
-func (m *TestEnv) IsTTY() bool {
-	if m.stream == nil {
-		return false
-	}
-	return m.stream.IsTTY
-}
-
-// Stdio returns the configured stdin reader for this env. If no reader is
-// configured it falls back to os.Stdin.
-func (m *TestEnv) Stdio() io.Reader {
-	if m.stream == nil || m.stream.In == nil {
-		return os.Stdin
-	}
-	return m.stream.In
-}
-
-// Stdout returns the configured stdout writer for this env. If no writer is
-// configured it falls back to os.Stdout.
-func (m *TestEnv) Stdout() io.Writer {
-	if m.stream == nil || m.stream.Out == nil {
-		return os.Stdout
-	}
-	return m.stream.Out
-}
-
-// Stderr returns the configured stderr writer for this env. If no writer is
-// configured it falls back to os.Stderr.
-func (m *TestEnv) Stderr() io.Writer {
-	if m.stream == nil || m.stream.Err == nil {
-		return os.Stderr
-	}
-	return m.stream.Err
-}
-
-// SetStdio configures the input reader returned by Stdio.
-func (m *TestEnv) SetStdio(r io.Reader) {
-	m.stream.In = r
-}
-
-// SetStdout configures the writer returned by Stdout.
-func (m *TestEnv) SetStdout(w io.Writer) {
-	m.stream.Out = w
-}
-
-// SetStderr configures the writer returned by Stderr.
-func (m *TestEnv) SetStderr(w io.Writer) {
-	m.stream.Err = w
-}
-
-// SetStdioPiped sets whether stdin should be considered piped.
-func (m *TestEnv) SetStdioPiped(v bool) {
-	m.stream.IsPiped = v
-}
-
-// SetTTY sets whether stdout should be considered a terminal.
-func (m *TestEnv) SetTTY(v bool) {
-	m.stream.IsTTY = v
-}
-
-// Ensure implementations satisfy the interfaces.
-var _ Env = (*TestEnv)(nil)
 
 // GetHome returns the configured home directory or an error if it is not set.
 //
@@ -463,21 +387,13 @@ func (m *TestEnv) Clone() *TestEnv {
 		maps.Copy(dataCopy, m.data)
 	}
 
-	stream := &Stream{}
-	if m.stream != nil {
-		s := *m.stream
-		stream.In = s.In
-		stream.Out = s.Out
-		stream.Err = s.Err
-		stream.IsPiped = s.IsPiped
-		stream.IsTTY = s.IsTTY
-	}
-
 	return &TestEnv{
-		jail:   m.jail,
-		home:   m.home,
-		user:   m.user,
-		data:   dataCopy,
-		stream: stream,
+		jail: m.jail,
+		home: m.home,
+		user: m.user,
+		data: dataCopy,
 	}
 }
+
+// Ensure implementations satisfy the interfaces.
+var _ Env = (*TestEnv)(nil)

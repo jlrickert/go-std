@@ -10,9 +10,9 @@ import (
 //go:embed data/**
 var testdata embed.FS
 
-func NewFixture(t *testing.T, opts ...testutils.FixtureOption) *testutils.Fixture {
-	return testutils.NewFixture(t,
-		&testutils.FixtureOptions{
+func NewFixture(t *testing.T, opts ...testutils.SandboxOption) *testutils.Sandbox {
+	return testutils.NewSandbox(t,
+		&testutils.SandboxOptions{
 			Data: testdata,
 			Home: "/home/testuser",
 			User: "testuser",

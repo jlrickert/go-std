@@ -2,26 +2,11 @@ package std
 
 import (
 	"context"
-	"io"
 	"maps"
 	"os"
 	"sort"
 	"strings"
 )
-
-// Stream models the standard IO streams and common stream properties.
-//
-// Struct field tags are included for clarity to external consumers that may
-// wish to encode some stream metadata. The actual reader and writer fields
-// are not suitable for encoding and therefore are tagged to be ignored.
-type Stream struct {
-	In  io.Reader // input stream, for example os.Stdin
-	Out io.Writer // output stream, for example os.Stdout
-	Err io.Writer // error stream, for example os.Stderr
-
-	IsPiped bool //  indicates whether stdin appears to be piped or redirected.
-	IsTTY   bool // indicates whether stdout refers to a terminal.
-}
 
 // Env is a compact interface for reading and modifying environment
 // values. Implementations may reflect the real process environment (OsEnv)
@@ -72,18 +57,6 @@ type Env interface {
 	// GetTempDir returns an appropriate temp directory for this Env. For OsEnv
 	// this delegates to os.TempDir(); TestEnv provides testable fallbacks.
 	GetTempDir() string
-
-	// Stdio returns the input reader for this Env.
-	Stdio() io.Reader
-	// Stdout returns the output writer for this Env.
-	Stdout() io.Writer
-	// Stderr returns the error writer for this Env.
-	Stderr() io.Writer
-
-	// IsTTY reports whether stdout is a terminal.
-	IsTTY() bool
-	// IsStdioPiped reports whether stdin appears piped or redirected.
-	IsStdioPiped() bool
 }
 
 // GetDefault returns the value of key from env when present and non-empty.
@@ -192,18 +165,4 @@ func EnvFromContext(ctx context.Context) Env {
 		}
 	}
 	return defaultEnv
-}
-
-// StreamFromContext builds a Stream summarizing stdio and related properties
-// from the Env stored in ctx.
-func StreamFromContext(ctx context.Context) *Stream {
-	env := EnvFromContext(ctx)
-
-	return &Stream{
-		In:      env.Stdio(),
-		Out:     env.Stdout(),
-		Err:     env.Stderr(),
-		IsPiped: env.IsStdioPiped(),
-		IsTTY:   env.IsTTY(),
-	}
 }
