@@ -67,6 +67,8 @@ func IsInteractiveTerminal(f *os.File) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
 
+// Deprecated: CreateTestStdio is unstable and may change in future releases.
+//
 // CreateTestStdio creates a temporary file prefilled with the given content
 // and seeks it to the beginning, making it suitable to pass as a stand-in for
 // stdin, stdout, or stderr in tests.
@@ -122,11 +124,11 @@ func CreateTestStdio(content string) (*os.File, func()) {
 //
 // On success the function returns nil. On error it attempts to clean up any
 // temporary artifacts and returns a descriptive error.
-func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.FileMode) error {
+func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
 	env := EnvFromContext(ctx)
 	lg := LoggerFromContext(ctx)
 
-	path, err := ExpandPath(ctx, path)
+	path, err := ExpandPath(ctx, rel)
 
 	dir := filepath.Dir(path)
 
@@ -136,6 +138,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 			ctx,
 			slog.LevelError,
 			"atomic write: mkdirall failed",
+			slog.String("rel", rel),
 			slog.String("dir", dir),
 			slog.String("path", path),
 			slog.Any("error", err),
@@ -151,6 +154,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 			ctx,
 			slog.LevelError,
 			"atomic write: create temp file failed",
+			slog.String("rel", rel),
 			slog.String("dir", dir),
 			slog.Any("error", err),
 		)
@@ -202,6 +206,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 			ctx,
 			slog.LevelError,
 			"atomic write: rename failed",
+			slog.String("rel", rel),
 			slog.String("tmp", tmpName),
 			slog.String("path", path),
 			slog.Any("error", err),
@@ -213,6 +218,7 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 		ctx,
 		slog.LevelDebug,
 		"atomic write success",
+		slog.String("rel", rel),
 		slog.String("path", path),
 	)
 	return nil
@@ -228,17 +234,17 @@ func AtomicWriteFile(ctx context.Context, path string, data []byte, perm os.File
 // If ExpandPath fails (for example when HOME is not available) AbsPath falls
 // back to the original input and proceeds with expansion of environment
 // variables and cleaning.
-func AbsPath(ctx context.Context, path string) string {
-	if path == "" {
+func AbsPath(ctx context.Context, rel string) string {
+	if rel == "" {
 		return ""
 	}
 
 	// Expand leading tilde, if present.
-	p, err := ExpandPath(ctx, path)
+	p, err := ExpandPath(ctx, rel)
 	if err != nil {
 		// If expansion fails (for example: no HOME), fall back to the original
 		// input.
-		p = path
+		p = rel
 	}
 
 	// If the path is already absolute, just clean and return it.
@@ -276,12 +282,12 @@ func AbsPath(ctx context.Context, path string) string {
 
 // ResolvePath returns the absolute path with symlinks evaluated. If symlink
 // evaluation fails the absolute path returned by AbsPath is returned instead.
-func ResolvePath(ctx context.Context, path string) string {
-	if path == "" {
+func ResolvePath(ctx context.Context, rel string) string {
+	if rel == "" {
 		return ""
 	}
 
-	abs := AbsPath(ctx, path)
+	abs := AbsPath(ctx, rel)
 	// Attempt to resolve symlinks; return abs if resolution fails.
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		res := filepath.Clean(resolved)
@@ -363,7 +369,29 @@ func FindGitRoot(ctx context.Context, start string) string {
 	return ""
 }
 
-// EnsureInJail returns a path that resides inside jail when possible.
+func IsInJail(jail, rel string) bool {
+	j := filepath.Clean(jail)
+	if j == "" {
+		return true
+	}
+	p := filepath.Clean(rel)
+
+	// Make p absolute relative to jail if it's relative
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(j, p)
+	}
+
+	// Check if p is within jail by comparing cleaned paths
+	rel, err := filepath.Rel(j, p)
+	if err != nil {
+		return false
+	}
+
+	// If the relative path starts with "..", it's outside the jail
+	return !strings.HasPrefix(rel, "..")
+}
+
+// EnsureInJail returns a path that resides inside jail when possible.:
 //
 // If p is already inside jail the cleaned absolute form of p is returned.
 // Otherwise a path under jail is returned by appending the base name of p.
@@ -374,7 +402,7 @@ func EnsureInJail(jail, p string) string {
 	}
 	// Clean inputs.
 	j := filepath.Clean(jail)
-	if p == "" {
+	if p == "" || p == "/" {
 		return j
 	}
 	pp := filepath.Clean(p)
@@ -385,11 +413,6 @@ func EnsureInJail(jail, p string) string {
 		return res
 	}
 
-	// If pp is within j, return pp as-is.
-	rel, err := filepath.Rel(j, pp)
-	if err == nil && rel != "" && !strings.HasPrefix(rel, "..") {
-		return pp
-	}
 	// Otherwise, place a safe fallback under jail using the base name.
 	res := filepath.Join(jail, pp)
 	return res
@@ -397,7 +420,7 @@ func EnsureInJail(jail, p string) string {
 
 // EnsureInJailFor is a test-friendly helper that mirrors EnsureInJail but
 // accepts paths written with forward slashes. It converts both jail and p
-// using filepath.FromSlash before applying the EnsureInJail logic.
+// using filepath. FromSlash before applying the EnsureInJail logic.
 //
 // Use this from tests when expected values are easier to express using
 // posix-style literals.
@@ -413,22 +436,28 @@ func EnsureInJailFor(jail, p string) string {
 
 // ReadFile reads the named file using the Env stored in ctx. This ensures the
 // filesystem view can be controlled by an injected TestEnv.
-func ReadFile(ctx context.Context, name string) ([]byte, error) {
+func ReadFile(ctx context.Context, rel string) ([]byte, error) {
 	lg := LoggerFromContext(ctx)
 
-	path, err := ExpandPath(ctx, name)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	lg.Log(ctx, slog.LevelDebug, "read file", slog.String("name", name), slog.String("path", path))
 	b, err := os.ReadFile(path)
 	if err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"read file failed",
-			slog.String("name", name),
+			"os.ReadFile failed",
+			slog.String("rel", rel),
 			slog.Any("error", err),
+		)
+	} else {
+
+		lg.Log(ctx, slog.LevelDebug,
+			"os.ReadFile succeed",
+			slog.String("rel", rel),
+			slog.String("path", path),
 		)
 	}
 	return b, err
@@ -436,47 +465,42 @@ func ReadFile(ctx context.Context, name string) ([]byte, error) {
 
 // WriteFile writes data to a file using the Env stored in ctx. The perm
 // argument is the file mode to apply to the written file.
-func WriteFile(ctx context.Context, name string, data []byte, perm os.FileMode) error {
+func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
 	lg := LoggerFromContext(ctx)
-	path, err := ExpandPath(ctx, name)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return err
 	}
+	path = AbsPath(ctx, path)
 
-	lg.Log(
-		ctx,
-		slog.LevelDebug,
-		"write file",
-		slog.String("name", name),
-		slog.String("path", path),
-	)
-	if err := os.WriteFile(path, data, perm); err != nil {
+	err = os.WriteFile(path, data, perm)
+	if err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"write file failed",
-			slog.String("name", name),
+			"os.WriteFile failed",
+			slog.String("rel", rel),
 			slog.String("path", path),
 			slog.Any("error", err),
 		)
-		return err
+	} else {
+		lg.Log(
+			ctx,
+			slog.LevelDebug,
+			"os.WriteFile succeed",
+			slog.String("rel", rel),
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
 	}
-	return nil
+	return err
 }
 
 // Mkdir creates a directory using the Env stored in ctx. If all is true
 // MkdirAll is used.
-func Mkdir(ctx context.Context, path string, perm os.FileMode, all bool) error {
+func Mkdir(ctx context.Context, rel string, perm os.FileMode, all bool) error {
 	lg := LoggerFromContext(ctx)
-	lg.Log(
-		ctx,
-		slog.LevelDebug,
-		"mkdir",
-		slog.String("path", path),
-		slog.Bool("all", all),
-	)
-
-	path, err := ExpandPath(ctx, path)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return err
 	}
@@ -486,22 +510,40 @@ func Mkdir(ctx context.Context, path string, perm os.FileMode, all bool) error {
 			lg.Log(
 				ctx,
 				slog.LevelError,
-				"mkdirAll failed",
+				"os.MkdirAll failed",
+				slog.String("rel", rel),
 				slog.String("path", path),
 				slog.Any("error", err),
 			)
 			return err
+		} else {
+			lg.Log(
+				ctx,
+				slog.LevelDebug,
+				"os.MkdirAll success",
+				slog.String("rel", rel),
+				slog.String("path", path),
+			)
 		}
 	} else {
 		if err := os.Mkdir(path, perm); err != nil {
 			lg.Log(
 				ctx,
 				slog.LevelError,
-				"mkdir failed",
+				"os.Mkdir failed",
+				slog.String("rel", rel),
 				slog.String("path", path),
 				slog.Any("error", err),
 			)
 			return err
+		} else {
+			lg.Log(
+				ctx,
+				slog.LevelDebug,
+				"os.Mkdir success",
+				slog.String("rel", rel),
+				slog.String("path", path),
+			)
 		}
 	}
 
@@ -510,43 +552,54 @@ func Mkdir(ctx context.Context, path string, perm os.FileMode, all bool) error {
 
 // Remove removes the named file or directory using the Env stored in ctx. If
 // all is true RemoveAll is used.
-func Remove(ctx context.Context, name string, all bool) error {
+func Remove(ctx context.Context, rel string, all bool) error {
 	lg := LoggerFromContext(ctx)
 
-	path, err := ExpandPath(ctx, name)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return err
 	}
-
-	lg.Log(
-		ctx,
-		slog.LevelDebug,
-		"remove",
-		slog.String("path", path),
-		slog.Bool("all", all),
-	)
 
 	if all {
 		if err := os.RemoveAll(path); err != nil {
 			lg.Log(
 				ctx,
 				slog.LevelError,
-				"removeAll failed",
+				"os.RemoveAll failed",
+				slog.String("rel", rel),
 				slog.String("path", path),
 				slog.Any("error", err),
 			)
 			return err
+		} else {
+			lg.Log(
+				ctx,
+				slog.LevelDebug,
+				"os.RemoveAll success",
+				slog.String("rel", rel),
+				slog.String("path", path),
+				slog.Any("error", err),
+			)
 		}
 	} else {
 		if err := os.Remove(path); err != nil {
 			lg.Log(
 				ctx,
 				slog.LevelError,
-				"remove failed",
+				"os.Remove failed",
+				slog.String("rel", rel),
 				slog.String("path", path),
 				slog.Any("error", err),
 			)
 			return err
+		} else {
+			lg.Log(
+				ctx,
+				slog.LevelDebug,
+				"os.Remove success",
+				slog.String("rel", rel),
+				slog.String("path", path),
+			)
 		}
 	}
 
@@ -556,14 +609,6 @@ func Remove(ctx context.Context, name string, all bool) error {
 // Rename renames (moves) a file or directory using the Env stored in ctx.
 func Rename(ctx context.Context, src, dst string) error {
 	lg := LoggerFromContext(ctx)
-	lg.Log(
-		ctx,
-		slog.LevelDebug,
-		"rename",
-		slog.String("src", src),
-		slog.String("dst", dst),
-	)
-
 	srcPath, err := ExpandPath(ctx, src)
 	if err != nil {
 		return err
@@ -573,39 +618,91 @@ func Rename(ctx context.Context, src, dst string) error {
 		return err
 	}
 
-	if err := os.Rename(srcPath, dstPath); err != nil {
+	err = os.Rename(srcPath, dstPath)
+	if err != nil {
+
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"rename failed",
+			"os.Rename failed",
 			slog.String("src", src),
 			slog.String("dst", dst),
 			slog.String("srcPath", srcPath),
 			slog.String("dstPath", dstPath),
 			slog.Any("error", err),
 		)
-		return err
+	} else {
+
+		lg.Log(
+			ctx,
+			slog.LevelDebug,
+			"os.Rename success",
+			slog.String("src", src),
+			slog.String("dst", dst),
+			slog.String("srcPath", srcPath),
+			slog.String("dstPath", dstPath),
+		)
 	}
-	return nil
+	return err
 }
 
 // Stat returns the os.FileInfo for the named file. The path is expanded using
 // ExpandPath with the Env from ctx before calling os.Stat.
-func Stat(ctx context.Context, name string) (os.FileInfo, error) {
-	path, err := ExpandPath(ctx, name)
+func Stat(ctx context.Context, rel string) (os.FileInfo, error) {
+	lg := LoggerFromContext(ctx)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	return os.Stat(path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		lg.Log(ctx, slog.LevelError, "os.Stat failed",
+			slog.String("rel", rel),
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
+		return nil, err
+	} else {
+		lg.Log(ctx, slog.LevelDebug, "os.Stat success",
+			slog.String("rel", rel),
+			slog.String("path", path),
+		)
+	}
+	return fi, nil
 }
 
 // ReadDir reads the directory named by name and returns a list of entries. The
 // path is expanded using ExpandPath with the Env from ctx before calling
 // os.ReadDir.
-func ReadDir(ctx context.Context, name string) ([]os.DirEntry, error) {
-	path, err := ExpandPath(ctx, name)
+func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
+	lg := LoggerFromContext(ctx)
+	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadDir(path)
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		lg.Log(
+			ctx,
+			slog.LevelError,
+			"os.ReadDir failed",
+			slog.String("rel", rel),
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
+		return nil, err
+	} else {
+
+		lg.Log(
+			ctx,
+			slog.LevelDebug,
+			"os.ReadDir success",
+			slog.String("rel", rel),
+			slog.String("path", path),
+			slog.Int("count", len(entries)),
+		)
+	}
+
+	return entries, nil
 }
