@@ -1,10 +1,10 @@
-package std_test
+package toolkit_test
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 	"github.com/stretchr/testify/assert"
 )
 

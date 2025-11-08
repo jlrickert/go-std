@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	std "github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 )
 
 // Project holds paths and configuration roots for a repository-backed

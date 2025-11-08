@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/jlrickert/go-std/mylog"
-	std "github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 )
 
 // findGitRoot attempts to use the git CLI to determine the repository top-level

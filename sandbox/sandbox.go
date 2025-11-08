@@ -13,7 +13,7 @@ import (
 
 	"github.com/jlrickert/go-std/clock"
 	"github.com/jlrickert/go-std/mylog"
-	std "github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 )
 
 // SandboxOption is a function used to modify a Sandbox during construction.

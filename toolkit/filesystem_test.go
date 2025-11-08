@@ -1,11 +1,11 @@
-package std_test
+package toolkit_test
 
 import (
 	"context"
 	"runtime"
 	"testing"
 
-	std "github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 	"github.com/stretchr/testify/assert"
 )
 

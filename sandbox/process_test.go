@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
 	tu "github.com/jlrickert/go-std/sandbox"
+	std "github.com/jlrickert/go-std/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

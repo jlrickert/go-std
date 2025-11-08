@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
+	std "github.com/jlrickert/go-std/toolkit"
 )
 
 // Runner is a function signature for executing code within an isolated
