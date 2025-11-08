@@ -6,7 +6,6 @@ import (
 	"fmt"
 	iofs "io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,10 +33,6 @@ type Sandbox struct {
 	env    *std.TestEnv
 	clock  *clock.TestClock
 	hasher *std.MD5Hasher
-
-	// Jail is a temporary directory that acts as the root filesystem for
-	// file-based test fixtures.
-	Jail string
 }
 
 // SandboxOptions holds optional settings provided to NewSandbox.
@@ -54,8 +49,7 @@ type SandboxOptions struct {
 // NewSandbox constructs a Sandbox and applies given options. Cleanup is
 // registered with t.Cleanup so callers do not need to call a cleanup
 // function.
-func NewSandbox(t *testing.T, options *SandboxOptions,
-	opts ...SandboxOption) *Sandbox {
+func NewSandbox(t *testing.T, options *SandboxOptions, opts ...SandboxOption) *Sandbox {
 	jail := t.TempDir()
 
 	var home string
@@ -88,7 +82,6 @@ func NewSandbox(t *testing.T, options *SandboxOptions,
 		hasher: hasher,
 		env:    env,
 		clock:  clk,
-		Jail:   jail,
 	}
 
 	// Apply options.
@@ -163,9 +156,8 @@ func WithFixture(fixture string, path string) SandboxOption {
 			f.t.Fatalf("WithFixture: source %s not found: %v", src, err)
 		}
 
-		p, _ := std.ExpandPath(f.Context(), path)
-		p = std.RelativePath(f.Context(), f.Jail, p)
-		dst := std.EnsureInJailFor(f.Jail, p)
+		p := std.ResolvePath(f.Context(), path)
+		dst := filepath.Join(f.GetJail(), p)
 		if err := copyEmbedDir(f.data, src, dst); err != nil {
 			f.t.Fatalf("WithFixture: copy %s -> %s failed: %v",
 				src, dst, err)
@@ -173,12 +165,8 @@ func WithFixture(fixture string, path string) SandboxOption {
 	}
 }
 
-// AbsPath returns an absolute path. When the sandbox Jail is set and rel is
-// relative the path is made relative to the Jail. Otherwise the function
-// returns the absolute form of rel.
-func (sandbox *Sandbox) AbsPath(rel string) string {
-	sandbox.t.Helper()
-	return std.EnsureInJailFor(sandbox.Jail, std.AbsPath(sandbox.Context(), rel))
+func (sandbox *Sandbox) GetJail() string {
+	return sandbox.env.GetJail()
 }
 
 // Context returns the sandbox context.
@@ -186,12 +174,19 @@ func (sandbox *Sandbox) Context() context.Context {
 	return sandbox.ctx
 }
 
+// AbsPath returns an absolute path. When the sandbox Jail is set and rel is
+// relative the path is made relative to the Jail. Otherwise the function
+// returns the absolute form of rel.
+func (sandbox *Sandbox) AbsPath(rel string) string {
+	sandbox.t.Helper()
+	return std.AbsPath(sandbox.Context(), rel)
+}
+
 // ReadFile reads a file located under the sandbox Jail. The path is
 // interpreted relative to the Jail root.
 func (sandbox *Sandbox) ReadFile(rel string) ([]byte, error) {
 	sandbox.t.Helper()
-	p := sandbox.ResolvePath(rel)
-	return std.ReadFile(sandbox.Context(), p)
+	return std.ReadFile(sandbox.Context(), rel)
 }
 
 // MustReadFile reads a file under the Jail and fails the test on error.
@@ -206,19 +201,17 @@ func (sandbox *Sandbox) MustReadFile(rel string) []byte {
 
 func (sandbox *Sandbox) AtomicWriteFile(rel string, data []byte, perm os.FileMode) error {
 	sandbox.t.Helper()
-	if sandbox.Jail == "" {
+	if sandbox.GetJail() == "" {
 		return fmt.Errorf("no jail set")
 	}
-	p := sandbox.ResolvePath(rel)
-	return std.AtomicWriteFile(sandbox.Context(), p, data, perm)
+	return std.AtomicWriteFile(sandbox.Context(), rel, data, perm)
 }
 
 // WriteFile writes data to a path under the sandbox Jail, creating
 // parent directories as needed. perm is applied to the file.
 func (sandbox *Sandbox) WriteFile(rel string, data []byte, perm os.FileMode) error {
 	sandbox.t.Helper()
-	p := sandbox.ResolvePath(rel)
-	return std.WriteFile(sandbox.Context(), p, data, perm)
+	return std.WriteFile(sandbox.Context(), rel, data, perm)
 }
 
 // MustWriteFile writes data under the Jail and fails the test on error.
@@ -229,13 +222,17 @@ func (sandbox *Sandbox) MustWriteFile(path string, data []byte, perm os.FileMode
 	}
 }
 
+func (sandbox *Sandbox) Mkdir(rel string, all bool) error {
+	sandbox.t.Helper()
+	return sandbox.env.Mkdir(rel, 0o755, all)
+}
+
 // ResolvePath returns an absolute path with symlinks resolved, ensuring the
 // path remains within the sandbox Jail. It expands the path and evaluates any
 // symbolic links before confining it to the jail boundary.
 func (sandbox *Sandbox) ResolvePath(rel string) string {
 	sandbox.t.Helper()
-	target := std.ResolvePath(sandbox.Context(), rel)
-	return target
+	return std.ResolvePath(sandbox.Context(), rel)
 }
 
 func (sandbox *Sandbox) cleanup() {
@@ -246,12 +243,12 @@ func (sandbox *Sandbox) cleanup() {
 // limits recursion depth; maxDepth <= 0 means unlimited depth.
 func (sandbox *Sandbox) DumpJailTree(maxDepth int) {
 	sandbox.t.Helper()
-	if sandbox.Jail == "" {
+	if sandbox.GetJail() == "" {
 		sandbox.t.Log("DumpJailTree: no jail set")
 		return
 	}
 
-	sandbox.t.Logf("Jail tree: %s", sandbox.Jail)
+	sandbox.t.Logf("Jail tree: %s", sandbox.GetJail())
 
 	// First pass: collect all paths and determine which dirs have children
 	type pathInfo struct {
@@ -262,7 +259,7 @@ func (sandbox *Sandbox) DumpJailTree(maxDepth int) {
 	var paths []pathInfo
 	hasDirChild := make(map[string]bool)
 
-	err := filepath.WalkDir(sandbox.Jail, func(p string, d iofs.DirEntry,
+	err := filepath.WalkDir(sandbox.GetJail(), func(p string, d iofs.DirEntry,
 		err error) error {
 		if err != nil {
 			sandbox.t.Logf("  error: %v", err)
@@ -366,7 +363,7 @@ func copyEmbedDir(fsys embed.FS, src, dst string) error {
 		return err
 	}
 	for _, e := range entries {
-		s := path.Join(src, e.Name())
+		s := filepath.Join(src, e.Name())
 		d := filepath.Join(dst, e.Name())
 		if e.IsDir() {
 			if err := copyEmbedDir(fsys, s, d); err != nil {

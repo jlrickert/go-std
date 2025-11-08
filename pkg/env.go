@@ -17,6 +17,9 @@ import (
 type Env interface {
 	FileSystem
 
+	// Name of the environment
+	Name() string
+
 	// Get returns the raw environment value for key. The return value may be
 	// empty when the key is not present.
 	Get(key string) string
@@ -59,6 +62,10 @@ type Env interface {
 	// GetTempDir returns an appropriate temp directory for this Env. For OsEnv
 	// this delegates to os.TempDir(); TestEnv provides testable fallbacks.
 	GetTempDir() string
+
+	// ResolvePath resolves that path. Follows symlinks and returns the absolute
+	// path
+	ResolvePath(rel string, followSymlinks bool) (string, error)
 }
 
 // GetDefault returns the value of key from env when present and non-empty.

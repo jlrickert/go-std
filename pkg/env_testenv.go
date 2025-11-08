@@ -24,6 +24,10 @@ type TestEnv struct {
 	data map[string]string
 }
 
+func (o *TestEnv) Name() string {
+	return "test-env"
+}
+
 // NewTestEnv constructs a TestEnv populated with sensible defaults for tests.
 // It sets HOME and USER and also sets platform specific variables so functions
 // that prefer XDG_* on Unix or APPDATA/LOCALAPPDATA on Windows will pick them
@@ -109,7 +113,7 @@ func (m *TestEnv) GetHome() (string, error) {
 // SetHome sets the TestEnv home directory and updates the "HOME" key in the
 // underlying map for callers that read via Get.
 func (m *TestEnv) SetHome(rel string) error {
-	path, err := m.ResolvePath(rel)
+	path, err := m.ResolvePath(rel, false)
 	if err != nil {
 		return fmt.Errorf("unable to set home: %w", err)
 	}
@@ -305,25 +309,35 @@ func (m *TestEnv) Setwd(dir string) {
 	if m.data == nil {
 		m.data = make(map[string]string)
 	}
-	m.data["PWD"] = m.ExpandPath(dir)
+	path, _ := m.ResolvePath(dir, false)
+	m.data["PWD"] = path
 }
 
 // ReadFile reads the named file from the filesystem view held by this TestEnv.
 // When the receiver is nil the real filesystem is used.
 func (m *TestEnv) ReadFile(rel string) ([]byte, error) {
-	path, err := m.ResolvePath(rel)
+	resolved, err := m.ResolvePath(rel, false)
 	if err != nil {
 		return nil, err
 	}
+	path := filepath.Join(m.jail, resolved)
 	if !IsInJail(m.jail, path) {
-		return nil, fmt.Errorf("ReadFile: %w", ErrEscapeAttempt)
+		return nil, fmt.Errorf("ReadFile outside of jail %s: %w", path, ErrEscapeAttempt)
 	}
 	return os.ReadFile(path)
 }
 
 // Remove removes the named file or directory. If all is true RemoveAll is used.
 // When the receiver is nil the real filesystem is affected.
-func (m *TestEnv) Remove(path string, all bool) error {
+func (m *TestEnv) Remove(rel string, all bool) error {
+	path, err := m.ResolvePath(rel, false)
+	if err != nil {
+		return err
+	}
+	path = filepath.Join(m.jail, path)
+	if !IsInJail(m.jail, path) {
+		return fmt.Errorf("Remove outside of jail %s: %w", path, ErrEscapeAttempt)
+	}
 	if all {
 		return os.RemoveAll(path)
 	}
@@ -333,33 +347,77 @@ func (m *TestEnv) Remove(path string, all bool) error {
 // Rename renames (moves) a file or directory. When the receiver is nil the
 // operation is performed on the real filesystem.
 func (m *TestEnv) Rename(src string, dst string) error {
-	return os.Rename(src, dst)
+	a, err := m.ResolvePath(src, false)
+	if err != nil {
+		return err
+	}
+	a = filepath.Join(m.jail, a)
+	if !IsInJail(m.jail, a) {
+		return fmt.Errorf("Rename src outside of jail %s: %w", a, ErrEscapeAttempt)
+	}
+	b, err := m.ResolvePath(dst, false)
+	if err != nil {
+		return err
+	}
+	b = filepath.Join(m.jail, b)
+	if !IsInJail(m.jail, b) {
+		return fmt.Errorf("Rename dst outside of jail %s, %w", b, ErrEscapeAttempt)
+	}
+	return os.Rename(a, b)
 }
 
 // Mkdir creates a directory. If all is true MkdirAll is used.
-func (m *TestEnv) Mkdir(path string, perm os.FileMode, all bool) error {
-	p := m.ExpandPath(path)
+func (m *TestEnv) Mkdir(rel string, perm os.FileMode, all bool) error {
+	resolved, err := m.ResolvePath(rel, false)
+	if err != nil {
+		return err
+	}
+	p := filepath.Join(m.jail, resolved)
+	if !IsInJail(m.jail, p) {
+		return fmt.Errorf("Mkdir outside of jail: %s, %w", p, ErrEscapeAttempt)
+	}
 	if all {
 		return os.MkdirAll(p, perm)
 	}
-	return os.Mkdir(path, perm)
+	return os.Mkdir(p, perm)
 }
 
 // WriteFile writes data to a file in the filesystem view held by this TestEnv.
 func (m *TestEnv) WriteFile(name string, data []byte, perm os.FileMode) error {
-	path := m.ExpandPath(name)
+	p, err := m.ResolvePath(name, false)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(m.jail, p)
+	if !IsInJail(m.jail, path) {
+		return fmt.Errorf("WriteFile outside of jail %s: %w", path, ErrEscapeAttempt)
+	}
 	return os.WriteFile(path, data, perm)
 }
 
 // ReadDir implements FileSystem.
 func (m *TestEnv) ReadDir(name string) ([]os.DirEntry, error) {
-	path := m.ExpandPath(name)
-	return os.ReadDir(path)
+	p, err := m.ResolvePath(name, false)
+	if err != nil {
+		return nil, err
+	}
+	p = filepath.Join(m.jail, p)
+	if !IsInJail(m.jail, p) {
+		return nil, fmt.Errorf("ReadDir outside of jail %s: %w", p, ErrEscapeAttempt)
+	}
+	return os.ReadDir(p)
 }
 
 // Stat implements FileSystem.
-func (m *TestEnv) Stat(name string) (os.FileInfo, error) {
-	path := m.ExpandPath(name)
+func (m *TestEnv) Stat(rel string, followSymlinks bool) (os.FileInfo, error) {
+	path, err := m.ResolvePath(rel, followSymlinks)
+	if err != nil {
+		return nil, err
+	}
+	path = filepath.Join(m.jail, path)
+	if !IsInJail(m.jail, path) {
+		return nil, fmt.Errorf("Stat outside of jail %s: %w", path, ErrEscapeAttempt)
+	}
 	return os.Stat(path)
 }
 
@@ -398,7 +456,7 @@ func (m *TestEnv) ExpandPath(p string) string {
 	return p
 }
 
-func (m *TestEnv) ResolvePath(rel string) (string, error) {
+func (m *TestEnv) ResolvePath(rel string, followSymlinks bool) (string, error) {
 	p := filepath.Clean(rel)
 	if p == "." {
 		return m.Getwd()
@@ -418,7 +476,11 @@ func (m *TestEnv) ResolvePath(rel string) (string, error) {
 		path = filepath.Join(wd, expanded)
 	}
 
-	resolved, err := filepath.EvalSymlinks(path)
+	if !followSymlinks {
+		return path, nil
+	}
+
+	resolved, err := filepath.EvalSymlinks(filepath.Join(m.jail, path))
 	if err != nil {
 		return "", err
 	}

@@ -203,6 +203,12 @@ func TestIsInJail(t *testing.T) {
 			path: "mydirectory/file.txt",
 			want: true,
 		},
+		{
+			name: "tricky",
+			jail: "/jail",
+			path: "/jail/../a",
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -4,9 +4,11 @@ version: "3"
 tasks:
   test:
     cmds:
-      - go test ./mylog/ ./project ./sandbox/ ./clock/ ./pkg/  {{.CLI_ARGS}}
+      - go test ./mylog/ ./project ./sandbox/ ./clock/ ./pkg/ {{.CLI_ARGS}}
     sources:
+      - mylog/**/*.go
       - pkg/**/*.go
       - project/**/*.go
-      - testutils/**/*.go
+      - sandbox/**/*.go
+      - clock/**/*.go
     silent: true

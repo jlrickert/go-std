@@ -42,7 +42,6 @@ func TestSandbox_WithFixture(t *testing.T) {
 
 	sandbox.DumpJailTree(0)
 
-	t.Log("TEST", sandbox.Getwd())
 	data := sandbox.MustReadFile("fixtures/example/example.txt")
 	require.NotEmpty(t, data)
 }
@@ -169,10 +168,6 @@ func TestSandbox_ContextWithCustomOptions(t *testing.T) {
 func TestSandbox_ResolvePath(t *testing.T) {
 	t.Parallel()
 
-	sandbox := tu.NewSandbox(t, nil)
-	home, _ := sandbox.GetHome()
-	jail := sandbox.Jail
-
 	tests := []struct {
 		name     string
 		input    string
@@ -182,40 +177,43 @@ func TestSandbox_ResolvePath(t *testing.T) {
 		{
 			name:     "relative path",
 			input:    "test.txt",
-			expected: filepath.Join(home, "test.txt"),
+			expected: filepath.Join("/", "home", "testuser", "test.txt"),
 		},
 		{
 			name:     "tilde expansion",
 			input:    "~/test.txt",
-			expected: filepath.Join(home, "test.txt"),
+			expected: filepath.Join("/", "home", "testuser", "test.txt"),
 		},
 		{
 			name:     "escape attempt with dot dot",
-			input:    "../escape.txt",
-			expected: filepath.Join(jail, "home", "escape.txt"),
+			input:    "../../../escape.txt",
+			expected: filepath.Join("/escape.txt"),
 		},
 		{
 			name:     "respects working directory",
-			cwd:      filepath.Join(home, ".config", "app"),
+			cwd:      filepath.Join("~", ".config", "app"),
 			input:    "../../repos/GitHub.com",
-			expected: filepath.Join(home, "repos", "GitHub.com"),
+			expected: filepath.Join("/", "home", "testuser", "repos", "GitHub.com"),
 		},
 		{
 			name:     "absolute path",
 			input:    "/opt/etc/passwd",
-			expected: filepath.Join(jail, "opt", "etc", "passwd"),
+			expected: filepath.Join("/", "opt", "etc", "passwd"),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+
+			sandbox := tu.NewSandbox(t, nil)
+
 			if tc.cwd != "" {
 				sandbox.Setwd(tc.cwd)
 			}
 			resolved := sandbox.ResolvePath(tc.input)
 			require.NotEmpty(t, resolved)
 
-			require.Equal(t, tc.expected, resolved)
+			require.Equal(t, tc.expected, resolved, "cwd is %s", sandbox.Getwd())
 		})
 	}
 }

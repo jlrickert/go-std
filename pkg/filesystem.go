@@ -31,14 +31,10 @@ type FileSystem interface {
 	Rename(src, dst string) error
 
 	// Stat returns the os.FileInfo for the named file.
-	Stat(name string) (os.FileInfo, error)
+	Stat(name string, followSymlinks bool) (os.FileInfo, error)
 
 	// ReadDir reads the directory and returns a list of entries.
 	ReadDir(rel string) ([]os.DirEntry, error)
-
-	// ResolvePath resolves that path. Follows symlinks and returns the absolute
-	// path
-	ResolvePath(rel string) (string, error)
 
 	Symlink(oldname, newname string) error
 }
@@ -71,11 +67,13 @@ func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileM
 	dir := filepath.Dir(path)
 
 	// Ensure parent directory exists.
-	if err := Mkdir(ctx, dir, 0o755, true); err != nil {
+	if err := env.Mkdir(dir, 0o755, true); err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
 			"atomic write: mkdirall failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.String("dir", dir),
 			slog.String("path", path),
@@ -85,7 +83,6 @@ func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileM
 	}
 
 	// Create temp file in same dir so rename is atomic on same filesystem.
-	env.GetTempDir()
 	tmpFile, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+".*")
 	if err != nil {
 		lg.Log(
@@ -138,8 +135,9 @@ func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileM
 		)
 	}
 
+	newPath, err := env.ResolvePath(rel, true)
 	// Rename into place (atomic on POSIX when same fs).
-	if err := Rename(ctx, tmpName, path); err != nil {
+	if err := os.Rename(tmpName, newPath); err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
@@ -252,14 +250,17 @@ func RelativePath(ctx context.Context, basepath, path string) string {
 // ReadFile reads the named file using the Env stored in ctx. This ensures the
 // filesystem view can be controlled by an injected TestEnv.
 func ReadFile(ctx context.Context, rel string) ([]byte, error) {
+	env := EnvFromContext(ctx)
 	lg := mylog.LoggerFromContext(ctx)
 
-	b, err := os.ReadFile(rel)
+	b, err := env.ReadFile(rel)
 	if err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"os.ReadFile failed",
+			"ReadFile failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.Any("error", err),
 		)
@@ -267,7 +268,9 @@ func ReadFile(ctx context.Context, rel string) ([]byte, error) {
 	}
 
 	lg.Log(ctx, slog.LevelDebug,
-		"os.ReadFile succeed",
+		"ReadFile succeed",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
 	)
 	return b, err
@@ -276,6 +279,7 @@ func ReadFile(ctx context.Context, rel string) ([]byte, error) {
 // WriteFile writes data to a file using the Env stored in ctx. The perm
 // argument is the file mode to apply to the written file.
 func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
+	env := EnvFromContext(ctx)
 	lg := mylog.LoggerFromContext(ctx)
 	path, err := ExpandPath(ctx, rel)
 	if err != nil {
@@ -283,12 +287,20 @@ func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) e
 	}
 	path = AbsPath(ctx, path)
 
-	err = os.WriteFile(path, data, perm)
+	dir := filepath.Dir(path)
+	err = Mkdir(ctx, dir, 0o755, true)
+	if err != nil {
+		return err
+	}
+
+	err = env.WriteFile(path, data, perm)
 	if err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"os.WriteFile failed",
+			"WriteFile failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.String("path", path),
 			slog.Any("error", err),
@@ -298,7 +310,9 @@ func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) e
 	lg.Log(
 		ctx,
 		slog.LevelDebug,
-		"os.WriteFile succeed",
+		"WriteFile succeed",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
 		slog.String("path", path),
 		slog.Any("error", err),
@@ -316,6 +330,8 @@ func Mkdir(ctx context.Context, rel string, perm os.FileMode, all bool) error {
 			ctx,
 			slog.LevelError,
 			"Mkdir failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.Bool("all", all),
 			slog.String("rel", rel),
 			slog.Any("error", err),
@@ -326,6 +342,8 @@ func Mkdir(ctx context.Context, rel string, perm os.FileMode, all bool) error {
 		ctx,
 		slog.LevelDebug,
 		"Mkdir success",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.Bool("all", all),
 		slog.String("rel", rel),
 	)
@@ -344,6 +362,8 @@ func Remove(ctx context.Context, rel string, all bool) error {
 			ctx,
 			slog.LevelError,
 			"Remove failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.Any("error", err),
 		)
@@ -354,6 +374,8 @@ func Remove(ctx context.Context, rel string, all bool) error {
 		ctx,
 		slog.LevelDebug,
 		"Remove success",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
 	)
 
@@ -369,6 +391,8 @@ func Rename(ctx context.Context, src, dst string) error {
 			ctx,
 			slog.LevelError,
 			"Rename failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("src", src),
 			slog.String("dst", dst),
 			slog.Any("error", err),
@@ -379,6 +403,8 @@ func Rename(ctx context.Context, src, dst string) error {
 		ctx,
 		slog.LevelDebug,
 		"Rename success",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("src", src),
 		slog.String("dst", dst),
 	)
@@ -387,18 +413,22 @@ func Rename(ctx context.Context, src, dst string) error {
 
 // Stat returns the os.FileInfo for the named file. The path is expanded using
 // ExpandPath with the Env from ctx before calling os.Stat.
-func Stat(ctx context.Context, rel string) (os.FileInfo, error) {
+func Stat(ctx context.Context, rel string, followSymlinks bool) (os.FileInfo, error) {
 	env := EnvFromContext(ctx)
 	lg := mylog.LoggerFromContext(ctx)
-	info, err := env.Stat(rel)
+	info, err := env.Stat(rel, followSymlinks)
 	if err != nil {
 		lg.Log(ctx, slog.LevelError, "Stat failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.Any("error", err),
 		)
 		return nil, err
 	}
 	lg.Log(ctx, slog.LevelDebug, "Stat success",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
 	)
 	return info, nil
@@ -416,6 +446,8 @@ func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
 			ctx,
 			slog.LevelError,
 			"ReadDir failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.Any("error", err),
 		)
@@ -425,7 +457,9 @@ func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
 		lg.Log(
 			ctx,
 			slog.LevelDebug,
-			"os.ReadDir success",
+			"ReadDir success",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
 			slog.Int("count", len(entries)),
 		)
@@ -447,6 +481,8 @@ func Symlink(ctx context.Context, oldname, newname string) error {
 			ctx,
 			slog.LevelError,
 			"Symlink failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("oldname", oldname),
 			slog.String("newname", newname),
 			slog.Any("error", err),
@@ -458,6 +494,8 @@ func Symlink(ctx context.Context, oldname, newname string) error {
 		ctx,
 		slog.LevelDebug,
 		"Symlink success",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("oldname", oldname),
 		slog.String("newname", newname),
 	)

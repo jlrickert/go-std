@@ -13,6 +13,10 @@ import (
 // actual OS environment is required.
 type OsEnv struct{}
 
+func (o *OsEnv) Name() string {
+	return "os"
+}
+
 // GetHome returns the home directory reported by the OS. It delegates to
 // os.UserHomeDir.
 func (o *OsEnv) GetHome() (string, error) {
@@ -166,7 +170,7 @@ func (o *OsEnv) ReadDir(rel string) ([]os.DirEntry, error) {
 }
 
 // ResolvePath implements FileSystem.
-func (o *OsEnv) ResolvePath(rel string) (string, error) {
+func (o *OsEnv) ResolvePath(rel string, followSymlinks bool) (string, error) {
 	p := o.ExpandPath(rel)
 	if filepath.IsAbs(p) {
 		return filepath.EvalSymlinks(p)
@@ -176,11 +180,18 @@ func (o *OsEnv) ResolvePath(rel string) (string, error) {
 		return cwd, err
 	}
 	abs := filepath.Join(cwd, p)
-	return filepath.EvalSymlinks(abs)
+	if followSymlinks {
+		return filepath.EvalSymlinks(abs)
+	}
+	return abs, nil
 }
 
-func (o *OsEnv) Stat(name string) (os.FileInfo, error) {
-	return os.Stat(name)
+func (o *OsEnv) Stat(name string, followSymlinks bool) (os.FileInfo, error) {
+	path, err := o.ResolvePath(name, followSymlinks)
+	if err != nil {
+		return nil, err
+	}
+	return os.Stat(path)
 }
 
 func (o *OsEnv) Symlink(oldname string, newname string) error {

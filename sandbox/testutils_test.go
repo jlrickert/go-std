@@ -64,7 +64,7 @@ func TestSandbox_ReadWriteStaysInJail(t *testing.T) {
 
 	// Verify the file path is within the jail
 	absPath := sandbox.AbsPath(testFile)
-	jailAbs, _ := filepath.Abs(sandbox.Jail)
+	jailAbs, _ := filepath.Abs(sandbox.GetJail())
 	relPath, err := filepath.Rel(jailAbs, absPath)
 	assert.NoError(t, err)
 	assert.False(t, filepath.IsAbs(relPath) || relPath == "..",
@@ -95,7 +95,7 @@ func TestSandbox_JailIsolation(t *testing.T) {
 	t.Parallel()
 
 	sandbox := tu.NewSandbox(t, nil)
-	jailPath := sandbox.Jail
+	jailPath := sandbox.GetJail()
 
 	// Create a test file in the jail
 	testFile := "isolated.txt"
@@ -103,7 +103,8 @@ func TestSandbox_JailIsolation(t *testing.T) {
 	sandbox.MustWriteFile(testFile, testData, 0o644)
 
 	// Verify it exists in the jail
-	_, err := os.Stat(filepath.Join(jailPath, testFile))
+	testFilepath := sandbox.ResolvePath(testFile)
+	_, err := os.Stat(filepath.Join(jailPath, testFilepath))
 	require.NoError(t, err)
 
 	// Verify it does not exist outside the jail

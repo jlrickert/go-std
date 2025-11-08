@@ -19,7 +19,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	lg := mylog.LoggerFromContext(ctx)
 
 	// Normalize start to a directory (in case a file path was passed).
-	if fi, err := std.Stat(ctx, start); err == nil && !fi.IsDir() {
+	if fi, err := std.Stat(ctx, start, false); err == nil && !fi.IsDir() {
 		start = filepath.Dir(start)
 	}
 
@@ -51,7 +51,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	p := start
 	for {
 		gitPath := filepath.Join(p, ".git")
-		if fi, err := std.Stat(ctx, gitPath); err == nil {
+		if fi, err := std.Stat(ctx, gitPath, false); err == nil {
 			// .git can be a dir (normal repo) or a file (worktree / submodule).
 			if fi.IsDir() || fi.Mode().IsRegular() {
 				lg.Log(ctx, slog.LevelDebug, "found .git entry", slog.String("root", p))
