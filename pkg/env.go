@@ -15,6 +15,8 @@ import (
 // The interface mirrors common environment operations so callers can inject a
 // test implementation for unit tests without touching the real process env.
 type Env interface {
+	FileSystem
+
 	// Get returns the raw environment value for key. The return value may be
 	// empty when the key is not present.
 	Get(key string) string

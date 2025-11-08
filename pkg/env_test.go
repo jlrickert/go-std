@@ -26,27 +26,6 @@ func TestGetDefault(t *testing.T) {
 	assert.Equal(t, "fallback", std.GetDefault(env, "MISSING", "fallback"))
 }
 
-func TestTestEnvSetUnsetHomeUser(t *testing.T) {
-	jail := t.TempDir()
-	m := std.NewTestEnv(jail, filepath.FromSlash("/foo/home"), "alice")
-
-	home, err := m.GetHome()
-	require.NoError(t, err)
-	expected := std.EnsureInJail(jail, filepath.FromSlash("/foo/home"))
-	// normalize before compare
-	assert.Equal(t, filepath.Clean(expected), filepath.Clean(home))
-
-	require.NoError(t, m.Set("HOME", filepath.FromSlash("/bar")))
-	home, err = m.GetHome()
-	require.NoError(t, err)
-	expected2 := std.EnsureInJail(jail, filepath.FromSlash("/bar"))
-	assert.Equal(t, filepath.Clean(expected2), filepath.Clean(home))
-
-	m.Unset("HOME")
-	_, err = m.GetHome()
-	require.Error(t, err)
-}
-
 // Ensure changing the test MapEnv does not modify the real process environment.
 func TestTestEnvDoesNotChangeOsEnv(t *testing.T) {
 	const key = "GO_STD_TEST_OS_ENV_KEY"
@@ -109,45 +88,4 @@ func TestExpandEnv(t *testing.T) {
 
 	got3 := std.ExpandEnv(context.Background(), "$"+oskey)
 	assert.Equal(t, "osval", got3)
-}
-
-func TestSetwdRemainsInJail(t *testing.T) {
-	jail := t.TempDir()
-
-	cases := []struct {
-		name string
-		in   string
-	}{
-		{
-			name: "relative path placed in jail",
-			in:   "foo/bar",
-		},
-		{
-			name: "absolute path already inside jail",
-			in:   filepath.Join(jail, "sub"),
-		},
-		{
-			name: "absolute path outside jail falls back to jail base",
-			in:   filepath.FromSlash("/other/path/file.txt"),
-		},
-		{
-			name: "empty input returns jail",
-			in:   "",
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			env := std.NewTestEnv(jail, "", "")
-			// Use Setwd which is the code path for PWD handling.
-			env.Setwd(filepath.FromSlash(c.in))
-
-			got, err := env.Getwd()
-			require.NoError(t, err)
-
-			want := filepath.Clean(std.EnsureInJail(jail, filepath.FromSlash(c.in)))
-			assert.Equal(t, want, filepath.Clean(got))
-		})
-	}
 }

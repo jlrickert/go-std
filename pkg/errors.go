@@ -3,5 +3,6 @@ package std
 import "errors"
 
 var (
-	ErrNoEnvKey = errors.New("env key missing")
+	ErrNoEnvKey      = errors.New("env key missing")
+	ErrEscapeAttempt = errors.New("path escape attempt: operation would access path outside jail")
 )

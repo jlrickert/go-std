@@ -2,6 +2,7 @@ package std
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 // "USER" updates the corresponding home and user fields.
 type TestEnv struct {
 	jail string
-	home string
+	home string // home is an absolute path. Doesn't include the jail
 	user string
 	data map[string]string
 }
@@ -35,17 +36,20 @@ type TestEnv struct {
 // The function does not create directories on disk. It only sets environment
 // values in the returned TestEnv.
 func NewTestEnv(jail, home, username string) *TestEnv {
+	cwd := "/"
 	user := username
 	if user == "" {
 		user = "testuser"
 	}
 
 	if home == "" && user == "root" {
-		home = EnsureInJailFor(jail, filepath.Join("/", ".root"))
+		home = filepath.Join("/", ".root")
+		cwd = "/"
 	} else if home == "" {
-		home = EnsureInJailFor(jail, filepath.Join("/", "home", user))
+		home = filepath.Join("/", "home", user)
+		cwd = home
 	} else {
-		home = EnsureInJailFor(jail, home)
+		cwd = home
 	}
 
 	m := &TestEnv{
@@ -59,7 +63,7 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	// via Get.
 	m.data["HOME"] = home
 	m.data["USER"] = username
-	m.data["PWD"] = home
+	m.data["PWD"] = cwd
 
 	// Populate platform specific defaults so callers that query these keys get
 	// consistent results in tests.
@@ -86,6 +90,10 @@ func NewTestEnv(jail, home, username string) *TestEnv {
 	return m
 }
 
+func (m *TestEnv) GetJail() string {
+	return m.jail
+}
+
 // GetHome returns the configured home directory or an error if it is not set.
 //
 // For TestEnv the returned home is guaranteed to be located within the
@@ -95,17 +103,22 @@ func (m *TestEnv) GetHome() (string, error) {
 	if m.home == "" {
 		return "", errors.New("home not set in TestEnv")
 	}
-	return m.home, nil
+	return RemoveJailPrefix(m.jail, m.home), nil
 }
 
 // SetHome sets the TestEnv home directory and updates the "HOME" key in the
 // underlying map for callers that read via Get.
-func (m *TestEnv) SetHome(home string) error {
-	m.home = EnsureInJailFor(m.jail, home)
+func (m *TestEnv) SetHome(rel string) error {
+	path, err := m.ResolvePath(rel)
+	if err != nil {
+		return fmt.Errorf("unable to set home: %w", err)
+	}
+	home := filepath.Join(m.jail, path)
+	m.home = home
 	if m.data == nil {
 		m.data = make(map[string]string)
 	}
-	m.data["HOME"] = m.home
+	m.data["HOME"] = home
 	return nil
 }
 
@@ -243,13 +256,13 @@ func (m *TestEnv) Unset(key string) {
 func (m *TestEnv) GetTempDir() string {
 	// Prefer explicit TMPDIR/TEMP/TMP if provided in the TestEnv.
 	if d := m.data["TMPDIR"]; d != "" {
-		return EnsureInJailFor(m.jail, d)
+		return d
 	}
 	if d := m.data["TEMP"]; d != "" {
-		return EnsureInJailFor(m.jail, d)
+		return d
 	}
 	if d := m.data["TMP"]; d != "" {
-		return EnsureInJailFor(m.jail, d)
+		return d
 	}
 
 	// Platform specific sensible defaults without consulting the real process env.
@@ -257,17 +270,16 @@ func (m *TestEnv) GetTempDir() string {
 		// Prefer LOCALAPPDATA, then APPDATA, then USERPROFILE, then a home based
 		// default.
 		if local := m.data["LOCALAPPDATA"]; local != "" {
-			return EnsureInJailFor(m.jail, filepath.Join(local, "Temp"))
+			return filepath.Join(local, "Temp")
 		}
 		if app := m.data["APPDATA"]; app != "" {
-			return EnsureInJailFor(m.jail, filepath.Join(app, "Temp"))
+			return filepath.Join(app, "Temp")
 		}
 		if up := m.data["USERPROFILE"]; up != "" {
-			return EnsureInJailFor(m.jail, filepath.Join(up, "Temp"))
+			return filepath.Join(up, "Temp")
 		}
 		if m.home != "" {
-			return EnsureInJailFor(m.jail,
-				filepath.Join(m.home, "AppData", "Local", "Temp"))
+			return filepath.Join(m.home, "AppData", "Local", "Temp")
 		}
 		// No information available in TestEnv; return empty string to indicate
 		// unknown.
@@ -275,7 +287,7 @@ func (m *TestEnv) GetTempDir() string {
 	}
 
 	// Unix like: fall back to /tmp which is the conventional system temp dir.
-	return EnsureInJailFor(m.jail, "/tmp")
+	return filepath.Join("/", "tmp")
 }
 
 // Getwd returns the TestEnv's PWD value if set, otherwise an error.
@@ -285,7 +297,7 @@ func (m *TestEnv) Getwd() (string, error) {
 			return wd, nil
 		}
 	}
-	return "", errors.New("wd not set in TestEnv")
+	return "", errors.New("working directory not set in TestEnv")
 }
 
 // Setwd sets the TestEnv's PWD value to the provided directory.
@@ -293,49 +305,62 @@ func (m *TestEnv) Setwd(dir string) {
 	if m.data == nil {
 		m.data = make(map[string]string)
 	}
-	m.data["PWD"] = EnsureInJailFor(m.jail, m.ExpandPath(dir))
+	m.data["PWD"] = m.ExpandPath(dir)
 }
 
 // ReadFile reads the named file from the filesystem view held by this TestEnv.
 // When the receiver is nil the real filesystem is used.
-func (m *TestEnv) ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(EnsureInJail(m.jail, name))
+func (m *TestEnv) ReadFile(rel string) ([]byte, error) {
+	path, err := m.ResolvePath(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !IsInJail(m.jail, path) {
+		return nil, fmt.Errorf("ReadFile: %w", ErrEscapeAttempt)
+	}
+	return os.ReadFile(path)
 }
 
 // Remove removes the named file or directory. If all is true RemoveAll is used.
 // When the receiver is nil the real filesystem is affected.
 func (m *TestEnv) Remove(path string, all bool) error {
-	p := EnsureInJail(m.jail, path)
 	if all {
-		return os.RemoveAll(p)
+		return os.RemoveAll(path)
 	}
-	return os.Remove(p)
+	return os.Remove(path)
 }
 
 // Rename renames (moves) a file or directory. When the receiver is nil the
 // operation is performed on the real filesystem.
 func (m *TestEnv) Rename(src string, dst string) error {
-	return os.Rename(EnsureInJail(m.jail, src), EnsureInJail(m.jail, dst))
+	return os.Rename(src, dst)
 }
 
 // Mkdir creates a directory. If all is true MkdirAll is used.
 func (m *TestEnv) Mkdir(path string, perm os.FileMode, all bool) error {
-	p := EnsureInJailFor(m.jail, m.ExpandPath(path))
+	p := m.ExpandPath(path)
 	if all {
-		return os.MkdirAll(EnsureInJailFor(m.jail, p), perm)
+		return os.MkdirAll(p, perm)
 	}
-	return os.Mkdir(EnsureInJailFor(m.jail, path), perm)
+	return os.Mkdir(path, perm)
 }
 
 // WriteFile writes data to a file in the filesystem view held by this TestEnv.
 func (m *TestEnv) WriteFile(name string, data []byte, perm os.FileMode) error {
-	path := EnsureInJail(m.jail, m.ExpandPath(name))
+	path := m.ExpandPath(name)
 	return os.WriteFile(path, data, perm)
 }
 
-// Root returns the configured jail root for this TestEnv.
-func (m *TestEnv) Root() string {
-	return m.jail
+// ReadDir implements FileSystem.
+func (m *TestEnv) ReadDir(name string) ([]os.DirEntry, error) {
+	path := m.ExpandPath(name)
+	return os.ReadDir(path)
+}
+
+// Stat implements FileSystem.
+func (m *TestEnv) Stat(name string) (os.FileInfo, error) {
+	path := m.ExpandPath(name)
+	return os.Stat(path)
 }
 
 // ExpandPath expands a leading tilde in the provided path to the TestEnv home.
@@ -373,6 +398,33 @@ func (m *TestEnv) ExpandPath(p string) string {
 	return p
 }
 
+func (m *TestEnv) ResolvePath(rel string) (string, error) {
+	p := filepath.Clean(rel)
+	if p == "." {
+		return m.Getwd()
+	}
+
+	// Expand the path (handles ~ and env vars)
+	expanded := m.ExpandPath(rel)
+
+	var path string
+	if filepath.IsAbs(expanded) {
+		path = expanded
+	} else {
+		wd, err := m.Getwd()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(wd, expanded)
+	}
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return RemoveJailPrefix(m.jail, resolved), nil
+}
+
 // Clone returns a copy of the TestEnv so tests can modify the returned
 // environment without mutating the original. It deep copies the internal map
 // and makes a copy of the Stream struct.
@@ -388,12 +440,18 @@ func (m *TestEnv) Clone() *TestEnv {
 	}
 
 	return &TestEnv{
-		jail: m.jail,
 		home: m.home,
 		user: m.user,
 		data: dataCopy,
 	}
 }
 
+func (o *TestEnv) Symlink(oldname string, newname string) error {
+	oldPath := o.ExpandPath(oldname)
+	newPath := o.ExpandPath(newname)
+	return os.Symlink(oldPath, newPath)
+}
+
 // Ensure implementations satisfy the interfaces.
 var _ Env = (*TestEnv)(nil)
+var _ FileSystem = (*TestEnv)(nil)

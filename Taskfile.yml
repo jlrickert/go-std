@@ -4,7 +4,7 @@ version: "3"
 tasks:
   test:
     cmds:
-      - go test ./project ./testutils/ ./pkg/
+      - go test ./mylog/ ./project ./sandbox/ ./clock/ ./pkg/  {{.CLI_ARGS}}
     sources:
       - pkg/**/*.go
       - project/**/*.go

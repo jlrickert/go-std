@@ -6,7 +6,7 @@ import (
 
 	std "github.com/jlrickert/go-std/pkg"
 	proj "github.com/jlrickert/go-std/project"
-	"github.com/jlrickert/go-std/testutils"
+	testutils "github.com/jlrickert/go-std/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ func TestNewProjectManualRootDefaults(t *testing.T) {
 	t.Parallel()
 
 	// Create fixture and populate with the example repo under "repo".
-	f := NewFixture(t,
+	f := NewSandbox(t,
 		testutils.WithFixture("basic", "repo"),
 		testutils.WithWd("repo"),
 	)

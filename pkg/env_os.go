@@ -5,6 +5,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // OsEnv is an Env implementation that delegates to the real process
@@ -102,6 +103,31 @@ func (o *OsEnv) Setwd(dir string) {
 	_ = os.Chdir(p)
 }
 
+func (o *OsEnv) ExpandPath(p string) string {
+	if p == "" {
+		return p
+	}
+	if p[0] != '~' {
+		return p
+	}
+
+	// Only expand the simple leading tilde forms: "~" or "~/" or "~\"
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		home, _ := o.GetHome()
+		if p == "~" {
+			return filepath.Clean(home)
+		}
+		// Trim the "~/" or "~\" prefix and join with home to produce a
+		// well formed path.
+		rest := p[2:]
+		return filepath.Join(home, rest)
+	}
+
+	// More complex cases like "~username/..." are not supported and are
+	// returned unchanged.
+	return p
+}
+
 // ReadFile reads the named file from the real filesystem.
 func (o *OsEnv) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
@@ -135,5 +161,34 @@ func (o *OsEnv) Mkdir(path string, perm os.FileMode, all bool) error {
 	return os.Mkdir(path, perm)
 }
 
+func (o *OsEnv) ReadDir(rel string) ([]os.DirEntry, error) {
+	return os.ReadDir(rel)
+}
+
+// ResolvePath implements FileSystem.
+func (o *OsEnv) ResolvePath(rel string) (string, error) {
+	p := o.ExpandPath(rel)
+	if filepath.IsAbs(p) {
+		return filepath.EvalSymlinks(p)
+	}
+	cwd, err := o.Getwd()
+	if err != nil {
+		return cwd, err
+	}
+	abs := filepath.Join(cwd, p)
+	return filepath.EvalSymlinks(abs)
+}
+
+func (o *OsEnv) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
+}
+
+func (o *OsEnv) Symlink(oldname string, newname string) error {
+	oldPath := o.ExpandPath(oldname)
+	newPath := o.ExpandPath(newname)
+	return os.Symlink(oldPath, newPath)
+}
+
 // Ensure implementations satisfy the interfaces.
 var _ Env = (*OsEnv)(nil)
+var _ FileSystem = (*OsEnv)(nil)

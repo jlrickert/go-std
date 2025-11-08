@@ -52,7 +52,7 @@ func TestExpandPath(t *testing.T) {
 		got, err := std.ExpandPath(std.WithEnv(t.Context(), env), "~")
 		require.NoError(t, err)
 
-		expected := std.EnsureInJail(env.Root(), relHome)
+		expected := std.EnsureInJail(jail, relHome)
 		assert.Equal(t, filepath.Clean(expected), filepath.Clean(got))
 	})
 
@@ -65,7 +65,7 @@ func TestExpandPath(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		expected := std.EnsureInJail(env.Root(), filepath.Join("home", "alice", "project"))
+		expected := std.EnsureInJail(jail, filepath.Join("home", "alice", "project"))
 		assert.Equal(t, filepath.Clean(expected), filepath.Clean(got))
 	})
 

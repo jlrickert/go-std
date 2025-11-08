@@ -1,4 +1,4 @@
-package testutils_test
+package sandbox_test
 
 import (
 	"bufio"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	std "github.com/jlrickert/go-std/pkg"
-	tu "github.com/jlrickert/go-std/testutils"
+	tu "github.com/jlrickert/go-std/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +31,7 @@ func TestPipeline_EmptyStages(t *testing.T) {
 func TestPipeline_SingleStage(t *testing.T) {
 	t.Parallel()
 
-	runner := func(ctx context.Context, s std.Stream) (int, error) {
+	runner := func(ctx context.Context, s *std.Stream) (int, error) {
 		_, _ = fmt.Fprintln(s.Out, "single stage output")
 		return 0, nil
 	}
@@ -51,7 +51,7 @@ func TestPipeline_SingleStage(t *testing.T) {
 func TestPipeline_TwoStages(t *testing.T) {
 	t.Parallel()
 
-	producer := func(ctx context.Context, s std.Stream) (int, error) {
+	producer := func(ctx context.Context, s *std.Stream) (int, error) {
 		lines := []string{"alpha", "beta", "gamma"}
 		for _, line := range lines {
 			_, _ = fmt.Fprintln(s.Out, line)
@@ -59,7 +59,7 @@ func TestPipeline_TwoStages(t *testing.T) {
 		return 0, nil
 	}
 
-	consumer := func(ctx context.Context, s std.Stream) (int, error) {
+	consumer := func(ctx context.Context, s *std.Stream) (int, error) {
 		sc := bufio.NewScanner(s.In)
 		for sc.Scan() {
 			line := sc.Text()

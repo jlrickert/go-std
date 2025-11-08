@@ -82,7 +82,7 @@ func WithAutoRootDetect() ProjectOption {
 			// leave Root unchanged when we cannot determine working dir
 			return
 		}
-		root := std.FindGitRoot(ctx, wd)
+		root := FindGitRoot(ctx, wd)
 		p.Root = root
 	}
 }

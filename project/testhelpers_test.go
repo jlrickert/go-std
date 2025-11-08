@@ -4,13 +4,13 @@ import (
 	"embed"
 	"testing"
 
-	"github.com/jlrickert/go-std/testutils"
+	testutils "github.com/jlrickert/go-std/sandbox"
 )
 
 //go:embed data/**
 var testdata embed.FS
 
-func NewFixture(t *testing.T, opts ...testutils.SandboxOption) *testutils.Sandbox {
+func NewSandbox(t *testing.T, opts ...testutils.SandboxOption) *testutils.Sandbox {
 	return testutils.NewSandbox(t,
 		&testutils.SandboxOptions{
 			Data: testdata,
