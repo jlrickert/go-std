@@ -7,6 +7,7 @@
 ### 📚 Documentation
 
 - Update README with package organization and examples
+- *(changelog)* Update changelog for 0.1.1
 ## [0.1.0] - 2025-11-08
 
 ### 🚀 Features
@@ -27,28 +28,6 @@
 
 - Make clock context helpers robust and add tests
 
-### 🚜 Refactor
-
-- Use context-based Env in user and env packages
-- Reorganize logger and simplify context helpers
-- Split env into OsEnv/TestEnv and normalize Env API
-- Centralize filesystem helpers and use context path expansion
-- Decouple stream handling from Env interface
-- Improve filesystem function signatures and logging
-- Move clock package to top-level directory
-- Relocate logger to mylog package and enhance LoggedEntry
-- Reorganize packages and extract filesystem operations
-- Add ResolvePath to Env interface and improve jail confinement
-- Rename pkg package to toolkit
-
 ### 📚 Documentation
 
 - Add README with overview and usage examples
-
-### 🧪 Testing
-
-- Use testify in pkg env tests
-
-### ⚙️ Miscellaneous Tasks
-
-- Add GoReleaser release workflow and config
