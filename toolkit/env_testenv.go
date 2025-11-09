@@ -456,9 +456,9 @@ func (m *TestEnv) ExpandPath(p string) string {
 	return p
 }
 
-func (m *TestEnv) ResolvePath(rel string, followSymlinks bool) (string, error) {
+func (m *TestEnv) ResolvePath(rel string, follow bool) (string, error) {
 	p := filepath.Clean(rel)
-	if p == "." {
+	if p == "." || p == "" {
 		return m.Getwd()
 	}
 
@@ -476,8 +476,8 @@ func (m *TestEnv) ResolvePath(rel string, followSymlinks bool) (string, error) {
 		path = filepath.Join(wd, expanded)
 	}
 
-	if !followSymlinks {
-		return path, nil
+	if !follow {
+		return filepath.Clean(path), nil
 	}
 
 	resolved, err := filepath.EvalSymlinks(filepath.Join(m.jail, path))

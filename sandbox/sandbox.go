@@ -156,7 +156,7 @@ func WithFixture(fixture string, path string) SandboxOption {
 			f.t.Fatalf("WithFixture: source %s not found: %v", src, err)
 		}
 
-		p := std.ResolvePath(f.Context(), path)
+		p, _ := std.ResolvePath(f.Context(), path, false)
 		dst := filepath.Join(f.GetJail(), p)
 		if err := copyEmbedDir(f.data, src, dst); err != nil {
 			f.t.Fatalf("WithFixture: copy %s -> %s failed: %v",
@@ -232,7 +232,9 @@ func (sandbox *Sandbox) Mkdir(rel string, all bool) error {
 // symbolic links before confining it to the jail boundary.
 func (sandbox *Sandbox) ResolvePath(rel string) string {
 	sandbox.t.Helper()
-	return std.ResolvePath(sandbox.Context(), rel)
+	// TODO: handle the error
+	path, _ := std.ResolvePath(sandbox.Context(), rel, false)
+	return path
 }
 
 func (sandbox *Sandbox) cleanup() {
@@ -270,7 +272,8 @@ func (sandbox *Sandbox) DumpJailTree(maxDepth int) {
 		if p == "." {
 			path = "/"
 		} else {
-			path = std.ResolvePath(sandbox.Context(), p)
+			// TODO: Handle the error
+			path, _ = std.ResolvePath(sandbox.Context(), p, false)
 		}
 
 		// Apply depth limit when requested.

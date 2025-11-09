@@ -5,8 +5,10 @@ import (
 	"runtime"
 	"testing"
 
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/go-std/mylog"
+	"github.com/jlrickert/go-std/toolkit"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAbsPath(t *testing.T) {
@@ -33,8 +35,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "tilde alone expands to home",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/testuser", "testuser")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "~",
 			expected: "/home/testuser",
@@ -42,8 +44,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "tilde with path expands",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/testuser", "testuser")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "~/documents/file.txt",
 			expected: "/home/testuser/documents/file.txt",
@@ -51,8 +53,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "tilde in middle is not expanded",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/testuser", "testuser")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "/tmp/~user/file",
 			expected: "/tmp/~user/file",
@@ -60,9 +62,9 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "relative path converted to absolute",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "documents/file.txt",
 			expected: "/home/bob/documents/file.txt",
@@ -70,9 +72,9 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "relative path with dot",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "./config",
 			expected: "/home/bob/config",
@@ -80,9 +82,9 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "relative path with dot dot",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob/subdir")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "../documents",
 			expected: "/home/bob/documents",
@@ -90,8 +92,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "absolute path unchanged",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "/etc/passwd",
 			expected: "/etc/passwd",
@@ -99,8 +101,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "removes double slashes",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "/home//bob//documents",
 			expected: "/home/bob/documents",
@@ -108,8 +110,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "removes trailing slash",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "/home/bob/",
 			expected: "/home/bob",
@@ -117,8 +119,8 @@ func TestAbsPath(t *testing.T) {
 		{
 			name: "handles dot references",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			input:    "/home/./bob/./documents",
 			expected: "/home/bob/documents",
@@ -137,7 +139,7 @@ func TestAbsPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := tt.setup(t)
-			result := std.AbsPath(ctx, tt.input)
+			result := toolkit.AbsPath(ctx, tt.input)
 
 			assert.Equal(t, tt.expected, result)
 		})
@@ -146,113 +148,113 @@ func TestAbsPath(t *testing.T) {
 
 func TestResolvePath(t *testing.T) {
 	t.Parallel()
-
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping ResolvePath tests on windows")
 	}
 
 	tests := []struct {
 		name     string
-		setup    func(*testing.T) context.Context
+		setup    func(*testing.T, context.Context) context.Context
 		input    string
 		expected string
 	}{
 		{
 			name: "empty path returns empty string",
-			setup: func(t *testing.T) context.Context {
-				return context.Background()
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "",
-			expected: "",
+			expected: "/home/testuser",
 		},
 		{
 			name: "tilde alone expands to home",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/testuser", "testuser")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "~",
 			expected: "/home/testuser",
 		},
 		{
 			name: "tilde with path expands",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/testuser", "testuser")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/testuser", "testuser")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "~/documents/file.txt",
 			expected: "/home/testuser/documents/file.txt",
 		},
 		{
 			name: "relative path converted to absolute",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "documents/file.txt",
 			expected: "/home/bob/documents/file.txt",
 		},
 		{
 			name: "relative path with dot",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "./config",
 			expected: "/home/bob/config",
 		},
 		{
 			name: "relative path with dot dot",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob/subdir")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "../documents",
 			expected: "/home/bob/documents",
 		},
 		{
 			name: "absolute path unchanged",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "/opt/homebrew/etc/passwd",
 			expected: "/opt/homebrew/etc/passwd",
 		},
 		{
 			name: "removes double slashes",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "/home//bob//documents",
 			expected: "/home/bob/documents",
 		},
 		{
 			name: "removes trailing slash",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "/home/bob/",
 			expected: "/home/bob",
 		},
 		{
 			name: "handles dot references",
-			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
-				return std.WithEnv(context.Background(), env)
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
+				return toolkit.WithEnv(ctx, env)
 			},
 			input:    "/home/./bob/./documents",
 			expected: "/home/bob/documents",
 		},
 		{
 			name: "no env in context uses OsEnv",
-			setup: func(t *testing.T) context.Context {
-				return context.Background()
+			setup: func(t *testing.T, ctx context.Context) context.Context {
+				return ctx
 			},
 			input:    "/absolute/path",
 			expected: "/absolute/path",
@@ -262,9 +264,12 @@ func TestResolvePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := tt.setup(t)
-			result := std.ResolvePath(ctx, tt.input)
+			lg, _ := mylog.NewTestLogger(t, mylog.ParseLevel("debug"))
+			ctx := mylog.WithLogger(t.Context(), lg)
 
+			ctx = tt.setup(t, ctx)
+			result, err := toolkit.ResolvePath(ctx, tt.input, false)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -323,9 +328,9 @@ func TestRelativePath(t *testing.T) {
 		{
 			name: "relative path with tilde expansion",
 			setup: func(t *testing.T) context.Context {
-				env := std.NewTestEnv("", "/home/bob", "bob")
+				env := toolkit.NewTestEnv("", "/home/bob", "bob")
 				env.Setwd("/home/bob")
-				return std.WithEnv(context.Background(), env)
+				return toolkit.WithEnv(context.Background(), env)
 			},
 			basepath: "~",
 			path:     "~/documents/file.txt",
@@ -382,7 +387,7 @@ func TestRelativePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := tt.setup(t)
-			result := std.RelativePath(ctx, tt.basepath, tt.path)
+			result := toolkit.RelativePath(ctx, tt.basepath, tt.path)
 
 			assert.Equal(t, tt.expected, result)
 		})

@@ -170,24 +170,28 @@ func (o *OsEnv) ReadDir(rel string) ([]os.DirEntry, error) {
 }
 
 // ResolvePath implements FileSystem.
-func (o *OsEnv) ResolvePath(rel string, followSymlinks bool) (string, error) {
+func (o *OsEnv) ResolvePath(rel string, follow bool) (string, error) {
 	p := o.ExpandPath(rel)
 	if filepath.IsAbs(p) {
-		return filepath.EvalSymlinks(p)
+		if follow {
+			return filepath.EvalSymlinks(p)
+		}
+		return p, nil
 	}
+
 	cwd, err := o.Getwd()
 	if err != nil {
 		return cwd, err
 	}
 	abs := filepath.Join(cwd, p)
-	if followSymlinks {
+	if follow {
 		return filepath.EvalSymlinks(abs)
 	}
 	return abs, nil
 }
 
-func (o *OsEnv) Stat(name string, followSymlinks bool) (os.FileInfo, error) {
-	path, err := o.ResolvePath(name, followSymlinks)
+func (o *OsEnv) Stat(name string, follow bool) (os.FileInfo, error) {
+	path, err := o.ResolvePath(name, follow)
 	if err != nil {
 		return nil, err
 	}

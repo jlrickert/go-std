@@ -65,7 +65,7 @@ type Env interface {
 
 	// ResolvePath resolves that path. Follows symlinks and returns the absolute
 	// path
-	ResolvePath(rel string, followSymlinks bool) (string, error)
+	ResolvePath(rel string, follow bool) (string, error)
 }
 
 // GetDefault returns the value of key from env when present and non-empty.

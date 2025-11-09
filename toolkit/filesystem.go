@@ -218,18 +218,33 @@ func AbsPath(ctx context.Context, rel string) string {
 
 // ResolvePath returns the absolute path with symlinks evaluated. If symlink
 // evaluation fails the absolute path returned by AbsPath is returned instead.
-func ResolvePath(ctx context.Context, rel string) string {
-	if rel == "" {
-		return ""
-	}
+func ResolvePath(ctx context.Context, rel string, follow bool) (string, error) {
+	env := EnvFromContext(ctx)
+	lg := mylog.LoggerFromContext(ctx)
 
-	// This also expands ~
-	abs := AbsPath(ctx, rel)
-	// Attempt to resolve symlinks; return abs if resolution fails.
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
+	path, err := env.ResolvePath(rel, follow)
+	if err != nil {
+		lg.Log(
+			ctx,
+			slog.LevelError,
+			"ResolvePath failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
+			slog.String("rel", rel),
+			slog.Any("error", err),
+		)
+		return path, err
+
 	}
-	return abs
+	lg.Log(
+		ctx,
+		slog.LevelDebug,
+		"ResolvePath succeed",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
+		slog.String("rel", rel),
+	)
+	return path, nil
 }
 
 // RelativePath returns a path relative to basepath. If path is empty an
