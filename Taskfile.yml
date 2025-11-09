@@ -2,6 +2,9 @@
 
 version: "3"
 tasks:
+  install:
+    cmds:
+      - go install github.com/autotag-dev/autotag/autotag@latest
   test:
     cmds:
       - go test ./mylog/ ./project ./sandbox/ ./clock/ ./toolkit/ {{.CLI_ARGS}}
@@ -13,3 +16,13 @@ tasks:
       - clock/**/*.go
       - toolkit/**/*.go
     silent: true
+  release:
+    cmds:
+      - echo "Running tests..."
+      - go test ./...
+      - git-cliff --output CHANGELOG.md --tag $(autotag -n)
+      - git add CHANGELOG.md
+      - 'git commit -m "docs(changelog): update changelog for $(autotag -n)"'
+      - autotag
+      - git push origin HEAD --tags
+      - echo "Release process complete"
