@@ -13,75 +13,132 @@ test without touching global process state.
 - Small logging helpers built on `log/slog` and a test handler.
 - Simple hashing interface with a default MD5 hasher.
 - Helpers for user-scoped directories and a `project` helper for app roots.
-- `testutils.Fixture` to simplify common test setup.
+- `Sandbox` for comprehensive test setup with jailed filesystem, test clock,
+  logger, and environment.
+- Pipeline execution with `Process` and `Pipeline` for testing complex I/O
+  scenarios.
 
 ## Packages
 
-- `pkg` contains the reusable helpers. Notable files:
-  - `pkg/env.go`, `pkg/env_os.go`, `pkg/env_testenv.go`, `pkg/env_test.go`
-  - `pkg/clock.go`, `pkg/clock_test.go`
-  - `pkg/fs.go`, `pkg/fs_test.go`
-  - `pkg/logger.go`, `pkg/logger_testutils.go`
-  - `pkg/hash.go`
-  - `pkg/user.go`, `pkg/user_test.go`
-- `project` contains `Project` utilities to locate config, data, state, and
-  cache directories for an application.
-- `testutils` contains `Fixture` and helpers used by package tests.
+### Core Toolkit (`toolkit`)
+
+Main package with filesystem, environment, and I/O utilities:
+
+- **Environment**: `Env` interface with `OsEnv` and `TestEnv` implementations.
+  Supports variable expansion, path handling, and home directory management.
+- **Filesystem**: Path resolution, atomic writes, directory operations with jail
+  (sandbox) support.
+- **Streams**: `Stream` struct modeling stdin/stdout/stderr with TTY and pipe
+  detection.
+- **Utilities**: File operations, editor launching, environment inspection, user
+  path helpers.
+
+### Project (`project`)
+
+Application root and configuration management:
+
+- **Project struct**: Manages repository root and platform-scoped paths (config,
+  data, state, cache).
+- **Options**: `WithRoot()`, `WithAutoRootDetect()` for git repository
+  detection, and per-path customization.
+
+### Logging (`mylog`)
+
+Structured logging built on `log/slog`:
+
+- **NewLogger()**: Create configured loggers with JSON/text output and level
+  control.
+- **TestHandler**: Captures log entries for test assertions.
+- **Utilities**: `ParseLevel()` for level names, `FindEntries()` and
+  `RequireEntry()` for test helpers.
+
+### Clock (`clock`)
+
+Time abstraction for testable code:
+
+- **Clock interface**: Abstract time operations.
+- **OsClock**: Production implementation using `time.Now()`.
+- **TestClock**: Manual time control for deterministic tests.
+
+### Sandbox (`sandbox`)
+
+Comprehensive test environment bundling common setup:
+
+- **Sandbox**: Combines test logger, environment, clock, hasher, and jailed
+  filesystem.
+- **Process**: Isolated function execution with configurable I/O streams.
+- **Pipeline**: Sequential stage execution with piped I/O.
+- **Options**: Configure clock, environment, working directory, and test
+  fixtures.
 
 ## Install
-
-Run the usual go command to add the module to your project:
 
 ```
 go get github.com/jlrickert/go-std
 ```
 
-## Example: Testable environment and variable expansion
+## Examples
 
-```
-env := std.NewTestEnv("/tmp/jail", "/home/alice", "alice")
+### Testable environment and variable expansion
+
+```go
+env := toolkit.NewTestEnv("/tmp/jail", "/home/alice", "alice")
 _ = env.Set("FOO", "bar")
-ctx := std.WithEnv(context.Background(), env)
+ctx := toolkit.WithEnv(context.Background(), env)
 
-out := std.ExpandEnv(ctx, "$FOO/baz")
+out := toolkit.ExpandEnv(ctx, "$FOO/baz")
 // out == "bar/baz" on unix-like platforms
 ```
 
-## Example: Test clock
+### Test clock
 
-```
-tc := std.NewTestClock(time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC))
-ctx := std.WithClock(context.Background(), tc)
+```go
+tc := clock.NewTestClock(time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC))
+ctx := clock.WithClock(context.Background(), tc)
 
-now := std.ClockFromContext(ctx).Now()
+now := clock.ClockFromContext(ctx).Now()
 tc.Advance(2 * time.Hour)
 // Now reflects advanced time
 ```
 
-## Example: Atomic file write
+### Atomic file write
 
-```
-ctx := std.WithEnv(context.Background(), std.NewTestEnv("", "", ""))
-err := std.AtomicWriteFile(ctx, "/tmp/some/file.txt", []byte("data"), 0644)
+```go
+ctx := toolkit.WithEnv(context.Background(),
+  toolkit.NewTestEnv("", "", ""))
+err := toolkit.AtomicWriteFile(ctx, "/tmp/some/file.txt",
+  []byte("data"), 0644)
 if err != nil {
     // handle
 }
 ```
 
-## Example: Test logger
+### Test logger
 
-```
-lg, th := std.NewTestLogger(t, std.ParseLevel("debug"))
-ctx := std.WithLogger(context.Background(), lg)
+```go
+lg, th := mylog.NewTestLogger(t, mylog.ParseLevel("debug"))
+ctx := mylog.WithLogger(context.Background(), lg)
 // use ctx in code under test and assert logs in `th`
 ```
 
-## Example: Project helper
+### Project helper
 
-```
-p, err := project.NewProject(ctx, "myapp", project.WithRoot("/path/to/repo"))
+```go
+p, err := project.NewProject(ctx, "myapp",
+  project.WithRoot("/path/to/repo"))
 cfgRoot, _ := p.ConfigRoot(ctx)
 // cfgRoot == <user-config-dir>/myapp
+```
+
+### Sandbox with test setup
+
+```go
+sb := sandbox.NewSandbox(t, nil,
+  sandbox.WithClock(time.Now()),
+  sandbox.WithEnv("DEBUG", "true"))
+ctx := sb.Context()
+sb.MustWriteFile("config.txt", []byte("data"), 0644)
+// Use ctx and sb in test
 ```
 
 ## Testing
@@ -93,8 +150,8 @@ go test ./...
 ```
 
 Many helpers provide test-friendly variants and fixtures. See
-`testutils.NewFixture` for a common test setup that wires a `TestEnv`,
-`TestClock`, test logger, and a temporary jail directory.
+`sandbox.NewSandbox` for comprehensive test setup that wires a `TestEnv`,
+`TestClock`, test logger, hasher, and jailed filesystem.
 
 ## Contributing
 
@@ -103,16 +160,19 @@ with a short description and tests for new behavior.
 
 ## Files to inspect
 
-- `pkg/` - core helpers (`env`, `clock`, `fs`, `logger`, `hash`, `user`)
+- `toolkit/` - core helpers (env, filesystem, streams, paths)
 - `project/` - project path helpers
-- `testutils/` - test fixtures and helpers
-- `project/data/` - example test data used by `project` tests
+- `mylog/` - structured logging utilities
+- `clock/` - time abstractions
+- `sandbox/` - comprehensive test setup
 
 ## Notes
 
-- The package aims to be small and easy to audit. Where possible, tests avoid
-  touching the real OS state by using `TestEnv` and `TestClock`.
-- See the repository files for detailed behavior and examples.
+- The library aims to be small and easy to audit. Tests avoid touching real OS
+  state by using `TestEnv` and `TestClock`.
+- See repository files for detailed behavior and examples.
+- All packages are designed for context injection to enable testable,
+  deterministic code.
 
 ## License
 
