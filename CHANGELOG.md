@@ -1,3 +1,8 @@
+## [0.2.0] - 2025-11-10
+
+### 🚀 Features
+
+- Add RunWithIO method and expand test coverage
 ## [0.1.2] - 2025-11-10
 
 ### 🐛 Bug Fixes
@@ -7,6 +12,7 @@
 ### 📚 Documentation
 
 - *(release)* Update changelog for v0.1.1
+- *(release)* Update changelog for v0.1.2
 ## [0.1.1] - 2025-11-09
 
 ### 🐛 Bug Fixes
