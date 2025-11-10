@@ -2,7 +2,6 @@ package toolkit
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -37,126 +36,37 @@ type FileSystem interface {
 	ReadDir(rel string) ([]os.DirEntry, error)
 
 	Symlink(oldname, newname string) error
+
+	AtomicWriteFile(rel string, data []byte, perm os.FileMode) error
 }
 
-// Package std contains small helpers for command line programs and test
-// utilities for working with standard input/output files and file system
-// paths in a cross-platform, testable way.
-//
-// Functions in this package intentionally accept *os.File so callers can pass
-// os.Stdin or a test file created with CreateTestStdio.
-
-// AtomicWriteFile writes data to path atomically. It performs the following
-// steps:
-//   - ensures the parent directory exists,
-//   - writes to a temp file in the same directory,
-//   - renames the temp file to the final path (atomic on POSIX when on the same
-//     filesystem),
-//
-// The perm parameter is the file mode to use for the final file (for example,
-// 0644).
-//
-// On success the function returns nil. On error it attempts to clean up any
-// temporary artifacts and returns a descriptive error.
 func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
 	env := EnvFromContext(ctx)
 	lg := mylog.LoggerFromContext(ctx)
 
-	path, err := ExpandPath(ctx, rel)
-
-	dir := filepath.Dir(path)
-
-	// Ensure parent directory exists.
-	if err := env.Mkdir(dir, 0o755, true); err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"atomic write: mkdirall failed",
-			slog.String("envType", env.Name()),
-			slog.String("pwd", env.Get("PWD")),
-			slog.String("rel", rel),
-			slog.String("dir", dir),
-			slog.String("path", path),
-			slog.Any("error", err),
-		)
-		return fmt.Errorf("atomic write: mkdirall %q: %w", dir, err)
-	}
-
-	// Create temp file in same dir so rename is atomic on same filesystem.
-	tmpFile, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+".*")
+	err := env.AtomicWriteFile(rel, data, perm)
 	if err != nil {
 		lg.Log(
 			ctx,
 			slog.LevelError,
-			"atomic write: create temp file failed",
+			"AtomicWriteFile failed",
+			slog.String("envType", env.Name()),
+			slog.String("pwd", env.Get("PWD")),
 			slog.String("rel", rel),
-			slog.String("dir", dir),
 			slog.Any("error", err),
 		)
-		return fmt.Errorf("atomic write: create temp file: %w", err)
+		return err
 	}
-	tmpName := tmpFile.Name()
-	defer os.Remove(tmpName)
-
-	// Write data.
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"atomic write: write temp file failed",
-			slog.String("tmp", tmpName),
-			slog.Any("error", err),
-		)
-		return fmt.Errorf("atomic write: write temp file %q: %w", tmpName, err)
-	}
-
-	// Close file before renaming.
-	if err := tmpFile.Close(); err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"atomic write: close temp file failed",
-			slog.String("tmp", tmpName),
-			slog.Any("error", err),
-		)
-		return fmt.Errorf("atomic write: close temp file %q: %w", tmpName, err)
-	}
-
-	// Set final permissions (rename preserves perms on many systems, but ensure).
-	if err := os.Chmod(tmpName, perm); err != nil {
-		// Not fatal: attempt rename anyway, but record error if rename fails.
-		lg.Log(
-			ctx,
-			slog.LevelDebug,
-			"atomic write: chmod failed, continuing",
-			slog.String("tmp", tmpName),
-			slog.Any("error", err),
-		)
-	}
-
-	newPath, err := env.ResolvePath(rel, true)
-	// Rename into place (atomic on POSIX when same fs).
-	if err := os.Rename(tmpName, newPath); err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"atomic write: rename failed",
-			slog.String("rel", rel),
-			slog.String("tmp", tmpName),
-			slog.String("path", path),
-			slog.Any("error", err),
-		)
-		return fmt.Errorf("atomic write: rename %q -> %q: %w", tmpName, path, err)
-	}
-
 	lg.Log(
 		ctx,
 		slog.LevelDebug,
-		"atomic write success",
+		"AtomicWriteFile succeed",
+		slog.String("envType", env.Name()),
+		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
-		slog.String("path", path),
+		slog.Any("error", err),
 	)
+
 	return nil
 }
 
@@ -468,7 +378,6 @@ func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
 		)
 		return nil, err
 	} else {
-
 		lg.Log(
 			ctx,
 			slog.LevelDebug,

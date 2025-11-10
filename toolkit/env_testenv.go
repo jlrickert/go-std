@@ -514,6 +514,48 @@ func (o *TestEnv) Symlink(oldname string, newname string) error {
 	return os.Symlink(oldPath, newPath)
 }
 
+func (m *TestEnv) AtomicWriteFile(rel string, data []byte, perm os.FileMode) error {
+	resolved, err := m.ResolvePath(rel, false)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(m.jail, resolved)
+	if !IsInJail(m.jail, path) {
+		return fmt.Errorf("AtomicWriteFile outside of jail %s: %w", path, ErrEscapeAttempt)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("atomic write: mkdirall %q: %w", dir, err)
+	}
+
+	tmpFile, err := os.CreateTemp("", ".tmp-"+filepath.Base(path)+".*")
+	if err != nil {
+		return fmt.Errorf("atomic write: create temp file: %w", err)
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("atomic write: write temp file %q: %w", tmpName, err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("atomic write: close temp file %q: %w", tmpName, err)
+	}
+
+	if err := os.Chmod(tmpName, perm); err != nil {
+		// Not fatal: continue anyway
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("atomic write: rename %q -> %q: %w", tmpName, path, err)
+	}
+
+	return nil
+}
+
 // Ensure implementations satisfy the interfaces.
 var _ Env = (*TestEnv)(nil)
 var _ FileSystem = (*TestEnv)(nil)
