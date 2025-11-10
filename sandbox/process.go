@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // Runner is a function signature for executing code within an isolated
 // test environment. It receives a context, standard I/O streams, and
 // command-line arguments, returning an error on failure.
-type Runner func(ctx context.Context, stream *std.Stream) (int, error)
+type Runner func(ctx context.Context, stream *toolkit.Stream) (int, error)
 
 // ProcessResult holds the outcome of process execution including any
 // error, exit code, and captured stdout and stderr output.
@@ -69,7 +69,7 @@ func NewProcess(fn Runner, isTTY bool) *Process {
 // NewProducer constructs a Process that emits the provided byte buffer
 // to stdout. It is useful for testing stages that consume input.
 func NewProducer(interval time.Duration, lines []string) *Process {
-	runner := func(ctx context.Context, s *std.Stream) (int, error) {
+	runner := func(ctx context.Context, s *toolkit.Stream) (int, error) {
 		for _, l := range lines {
 			fmt.Fprintln(s.Out, l)
 			// Small pause to exercise concurrent piping behavior.
@@ -227,7 +227,7 @@ func (p *Process) Run(ctx context.Context) *ProcessResult {
 	p.mu.Unlock()
 
 	// Build the stream
-	stream := &std.Stream{
+	stream := &toolkit.Stream{
 		In:      in,
 		Out:     out,
 		Err:     errOut,

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/clock"
-	"github.com/jlrickert/go-std/mylog"
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // SandboxOption is a function used to modify a Sandbox during construction.
@@ -30,9 +30,9 @@ type Sandbox struct {
 	ctx  context.Context
 
 	logger *mylog.TestHandler
-	env    *std.TestEnv
+	env    *toolkit.TestEnv
 	clock  *clock.TestClock
-	hasher *std.MD5Hasher
+	hasher *toolkit.MD5Hasher
 }
 
 // SandboxOptions holds optional settings provided to NewSandbox.
@@ -60,19 +60,19 @@ func NewSandbox(t *testing.T, options *SandboxOptions, opts ...SandboxOption) *S
 		user = options.User
 		data = options.Data
 	}
-	env := std.NewTestEnv(jail, home, user)
+	env := toolkit.NewTestEnv(jail, home, user)
 
 	lg, handler := mylog.NewTestLogger(t, mylog.ParseLevel("debug"))
 	clk := clock.NewTestClock(
 		time.Date(2025, 10, 15, 12, 30, 0, 0, time.UTC))
-	hasher := &std.MD5Hasher{}
+	hasher := &toolkit.MD5Hasher{}
 
 	// Populate common temp env vars.
 	ctx := t.Context()
 	ctx = mylog.WithLogger(ctx, lg)
-	ctx = std.WithEnv(ctx, env)
+	ctx = toolkit.WithEnv(ctx, env)
 	ctx = clock.WithClock(ctx, clk)
-	ctx = std.WithHasher(ctx, hasher)
+	ctx = toolkit.WithHasher(ctx, hasher)
 
 	f := &Sandbox{
 		t:      t,
@@ -156,7 +156,7 @@ func WithFixture(fixture string, path string) SandboxOption {
 			f.t.Fatalf("WithFixture: source %s not found: %v", src, err)
 		}
 
-		p, _ := std.ResolvePath(f.Context(), path, false)
+		p, _ := toolkit.ResolvePath(f.Context(), path, false)
 		dst := filepath.Join(f.GetJail(), p)
 		if err := copyEmbedDir(f.data, src, dst); err != nil {
 			f.t.Fatalf("WithFixture: copy %s -> %s failed: %v",
@@ -179,14 +179,14 @@ func (sandbox *Sandbox) Context() context.Context {
 // returns the absolute form of rel.
 func (sandbox *Sandbox) AbsPath(rel string) string {
 	sandbox.t.Helper()
-	return std.AbsPath(sandbox.Context(), rel)
+	return toolkit.AbsPath(sandbox.Context(), rel)
 }
 
 // ReadFile reads a file located under the sandbox Jail. The path is
 // interpreted relative to the Jail root.
 func (sandbox *Sandbox) ReadFile(rel string) ([]byte, error) {
 	sandbox.t.Helper()
-	return std.ReadFile(sandbox.Context(), rel)
+	return toolkit.ReadFile(sandbox.Context(), rel)
 }
 
 // MustReadFile reads a file under the Jail and fails the test on error.
@@ -204,14 +204,14 @@ func (sandbox *Sandbox) AtomicWriteFile(rel string, data []byte, perm os.FileMod
 	if sandbox.GetJail() == "" {
 		return fmt.Errorf("no jail set")
 	}
-	return std.AtomicWriteFile(sandbox.Context(), rel, data, perm)
+	return toolkit.AtomicWriteFile(sandbox.Context(), rel, data, perm)
 }
 
 // WriteFile writes data to a path under the sandbox Jail, creating
 // parent directories as needed. perm is applied to the file.
 func (sandbox *Sandbox) WriteFile(rel string, data []byte, perm os.FileMode) error {
 	sandbox.t.Helper()
-	return std.WriteFile(sandbox.Context(), rel, data, perm)
+	return toolkit.WriteFile(sandbox.Context(), rel, data, perm)
 }
 
 // MustWriteFile writes data under the Jail and fails the test on error.
@@ -233,7 +233,7 @@ func (sandbox *Sandbox) Mkdir(rel string, all bool) error {
 func (sandbox *Sandbox) ResolvePath(rel string) string {
 	sandbox.t.Helper()
 	// TODO: handle the error
-	path, _ := std.ResolvePath(sandbox.Context(), rel, false)
+	path, _ := toolkit.ResolvePath(sandbox.Context(), rel, false)
 	return path
 }
 
@@ -273,7 +273,7 @@ func (sandbox *Sandbox) DumpJailTree(maxDepth int) {
 			path = "/"
 		} else {
 			// TODO: Handle the error
-			path, _ = std.ResolvePath(sandbox.Context(), p, false)
+			path, _ = toolkit.ResolvePath(sandbox.Context(), p, false)
 		}
 
 		// Apply depth limit when requested.

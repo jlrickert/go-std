@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	proj "github.com/jlrickert/go-std/project"
-	testutils "github.com/jlrickert/go-std/sandbox"
-	std "github.com/jlrickert/go-std/toolkit"
+	proj "github.com/jlrickert/cli-toolkit/project"
+	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,28 +34,28 @@ func TestNewProjectManualRootDefaults(t *testing.T) {
 
 	// Verify config/data/state/cache roots align with user-scoped paths joined
 	// with the application name.
-	ucfg, err := std.UserConfigPath(f.Context())
+	ucfg, err := toolkit.UserConfigPath(f.Context())
 	require.NoError(t, err)
 	expectedCfg := filepath.Join(ucfg, appname)
 	cfg, err := p.ConfigRoot(f.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expectedCfg, cfg)
 
-	udata, err := std.UserDataPath(f.Context())
+	udata, err := toolkit.UserDataPath(f.Context())
 	require.NoError(t, err)
 	expectedData := filepath.Join(udata, appname)
 	data, err := p.DataRoot(f.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expectedData, data)
 
-	ustate, err := std.UserStatePath(f.Context())
+	ustate, err := toolkit.UserStatePath(f.Context())
 	require.NoError(t, err)
 	expectedState := filepath.Join(ustate, appname)
 	st, err := p.StateRoot(f.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expectedState, st)
 
-	ucache, err := std.UserCachePath(f.Context())
+	ucache, err := toolkit.UserCachePath(f.Context())
 	require.NoError(t, err)
 	expectedCache := filepath.Join(ucache, appname)
 	ca, err := p.CacheRoot(f.Context())

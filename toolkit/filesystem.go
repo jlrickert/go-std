@@ -7,7 +7,7 @@ import (
 
 	"log/slog"
 
-	"github.com/jlrickert/go-std/mylog"
+	"github.com/jlrickert/cli-toolkit/mylog"
 )
 
 // FileSystem defines the contract for filesystem operations.

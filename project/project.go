@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // Project holds paths and configuration roots for a repository-backed
@@ -76,7 +76,7 @@ func WithRoot(path string) ProjectOption {
 // If detection fails the option leaves Root unchanged.
 func WithAutoRootDetect() ProjectOption {
 	return func(ctx context.Context, p *Project) {
-		env := std.EnvFromContext(ctx)
+		env := toolkit.EnvFromContext(ctx)
 		wd, err := env.Getwd()
 		if err != nil {
 			// leave Root unchanged when we cannot determine working dir
@@ -94,9 +94,9 @@ func (p *Project) ConfigRoot(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("nil project")
 	}
 	if p.configRoot != "" {
-		return std.AbsPath(ctx, p.configRoot), nil
+		return toolkit.AbsPath(ctx, p.configRoot), nil
 	}
-	path, err := std.UserConfigPath(ctx)
+	path, err := toolkit.UserConfigPath(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +112,7 @@ func (p *Project) DataRoot(ctx context.Context) (string, error) {
 	if p.dataRoot != "" {
 		return p.dataRoot, nil
 	}
-	path, err := std.UserDataPath(ctx)
+	path, err := toolkit.UserDataPath(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -128,7 +128,7 @@ func (p *Project) StateRoot(ctx context.Context) (string, error) {
 	if p.stateRoot != "" {
 		return p.stateRoot, nil
 	}
-	path, err := std.UserStatePath(ctx)
+	path, err := toolkit.UserStatePath(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +144,7 @@ func (p *Project) CacheRoot(ctx context.Context) (string, error) {
 	if p.cacheRoot != "" {
 		return p.cacheRoot, nil
 	}
-	path, err := std.UserCachePath(ctx)
+	path, err := toolkit.UserCachePath(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +181,7 @@ func NewProject(ctx context.Context, appname string, opts ...ProjectOption) (*Pr
 		f(ctx, p)
 	}
 
-	env := std.EnvFromContext(ctx)
+	env := toolkit.EnvFromContext(ctx)
 
 	if p.Root == "" {
 		wd, err := env.Getwd()
@@ -192,7 +192,7 @@ func NewProject(ctx context.Context, appname string, opts ...ProjectOption) (*Pr
 	}
 
 	if p.configRoot == "" {
-		if path, err := std.UserConfigPath(ctx); err != nil {
+		if path, err := toolkit.UserConfigPath(ctx); err != nil {
 			return nil, fmt.Errorf(
 				"unable to find user config path: %w",
 				os.ErrNotExist,
@@ -203,7 +203,7 @@ func NewProject(ctx context.Context, appname string, opts ...ProjectOption) (*Pr
 	}
 
 	if p.dataRoot == "" {
-		if path, err := std.UserDataPath(ctx); err != nil {
+		if path, err := toolkit.UserDataPath(ctx); err != nil {
 			return nil, fmt.Errorf(
 				"unable to find user data path: %w",
 				os.ErrNotExist,
@@ -214,7 +214,7 @@ func NewProject(ctx context.Context, appname string, opts ...ProjectOption) (*Pr
 	}
 
 	if p.stateRoot == "" {
-		if path, err := std.UserStatePath(ctx); err != nil {
+		if path, err := toolkit.UserStatePath(ctx); err != nil {
 			return nil, fmt.Errorf(
 				"unable to find user state root: %w",
 				os.ErrNotExist,
@@ -225,7 +225,7 @@ func NewProject(ctx context.Context, appname string, opts ...ProjectOption) (*Pr
 	}
 
 	if p.cacheRoot == "" {
-		if path, err := std.UserCachePath(ctx); err != nil {
+		if path, err := toolkit.UserCachePath(ctx); err != nil {
 			return nil, fmt.Errorf(
 				"unable to find user cache root: %w",
 				os.ErrNotExist,

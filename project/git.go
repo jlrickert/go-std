@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jlrickert/go-std/mylog"
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // findGitRoot attempts to use the git CLI to determine the repository top-level
@@ -19,7 +19,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	lg := mylog.LoggerFromContext(ctx)
 
 	// Normalize start to a directory (in case a file path was passed).
-	if fi, err := std.Stat(ctx, start, false); err == nil && !fi.IsDir() {
+	if fi, err := toolkit.Stat(ctx, start, false); err == nil && !fi.IsDir() {
 		start = filepath.Dir(start)
 	}
 
@@ -51,7 +51,7 @@ func FindGitRoot(ctx context.Context, start string) string {
 	p := start
 	for {
 		gitPath := filepath.Join(p, ".git")
-		if fi, err := std.Stat(ctx, gitPath, false); err == nil {
+		if fi, err := toolkit.Stat(ctx, gitPath, false); err == nil {
 			// .git can be a dir (normal repo) or a file (worktree / submodule).
 			if fi.IsDir() || fi.Mode().IsRegular() {
 				lg.Log(ctx, slog.LevelDebug, "found .git entry", slog.String("root", p))

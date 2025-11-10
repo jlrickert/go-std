@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/clock"
+	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -4,7 +4,7 @@ import (
 	"embed"
 	"testing"
 
-	testutils "github.com/jlrickert/go-std/sandbox"
+	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 )
 
 //go:embed data/**

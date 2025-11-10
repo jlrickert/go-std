@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -79,7 +79,7 @@ func TestRemoveJailPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := std.RemoveJailPrefix(
+			got := toolkit.RemoveJailPrefix(
 				filepath.FromSlash(tt.jail),
 				filepath.FromSlash(tt.path))
 			assert.Equal(t, tt.want, got)
@@ -213,7 +213,7 @@ func TestIsInJail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := std.IsInJail(
+			got := toolkit.IsInJail(
 				filepath.FromSlash(tt.jail),
 				filepath.FromSlash(tt.path))
 			assert.Equal(t, tt.want, got)

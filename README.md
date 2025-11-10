@@ -1,4 +1,4 @@
-# go-std - Helpers for CLI programs and unit tests
+# cli-toolkit - Helpers for CLI programs and unit tests
 
 Small, focused helpers for command line programs and tests. The library provides
 testable abstractions for environment handling, time, file system operations,
@@ -74,7 +74,7 @@ Comprehensive test environment bundling common setup:
 ## Install
 
 ```
-go get github.com/jlrickert/go-std
+go get github.com/jlrickert/cli-toolkit
 ```
 
 ## Examples

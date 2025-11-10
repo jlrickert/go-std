@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	tu "github.com/jlrickert/go-std/sandbox"
-	std "github.com/jlrickert/go-std/toolkit"
+	tu "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +21,7 @@ func TestProcess_Run_NoStdin(t *testing.T) {
 	t.Parallel()
 
 	// Runner that ignores stdin and writes a single line to stdout.
-	runner := func(ctx context.Context, s *std.Stream) (int, error) {
+	runner := func(ctx context.Context, s *toolkit.Stream) (int, error) {
 		_, _ = fmt.Fprintln(s.Out, "hello, world")
 		_, _ = fmt.Fprintln(s.Err, "Some error!")
 		return 0, nil
@@ -43,7 +43,7 @@ func TestProcess_Pipe_ProducerToConsumer(t *testing.T) {
 	t.Parallel()
 
 	// Producer emits a few lines to stdout and then exits.
-	producer := func(ctx context.Context, s *std.Stream) (int, error) {
+	producer := func(ctx context.Context, s *toolkit.Stream) (int, error) {
 		lines := []string{"alpha", "beta", "gamma"}
 		for _, l := range lines {
 			_, _ = fmt.Fprintln(s.Out, l)
@@ -55,7 +55,7 @@ func TestProcess_Pipe_ProducerToConsumer(t *testing.T) {
 
 	// Consumer reads lines from stdin, uppercases them and writes to
 	// stdout.
-	consumer := func(ctx context.Context, s *std.Stream) (int, error) {
+	consumer := func(ctx context.Context, s *toolkit.Stream) (int, error) {
 		sc := bufio.NewScanner(s.In)
 		for sc.Scan() {
 			line := sc.Text()
@@ -104,7 +104,7 @@ func TestProcess_ContinuousStdin(t *testing.T) {
 	const linesToWrite = 20
 
 	// Consumer echoes uppercased lines to stdout.
-	consumer := func(ctx context.Context, s *std.Stream) (int, error) {
+	consumer := func(ctx context.Context, s *toolkit.Stream) (int, error) {
 		sc := bufio.NewScanner(s.In)
 		for sc.Scan() {
 			line := sc.Text()

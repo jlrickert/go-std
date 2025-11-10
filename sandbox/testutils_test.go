@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	tu "github.com/jlrickert/go-std/sandbox"
-	std "github.com/jlrickert/go-std/toolkit"
+	tu "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +25,7 @@ func TestFixture_WithEnvironment(t *testing.T) {
 		tu.WithEnv("LOG_LEVEL", "info"),
 	)
 
-	env := std.EnvFromContext(sandbox.Context())
+	env := toolkit.EnvFromContext(sandbox.Context())
 	assert.Equal(t, "true", env.Get("DEBUG"))
 	assert.Equal(t, "info", env.Get("LOG_LEVEL"))
 }

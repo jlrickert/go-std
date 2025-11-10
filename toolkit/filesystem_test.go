@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/jlrickert/go-std/mylog"
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

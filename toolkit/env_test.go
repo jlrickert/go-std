@@ -6,24 +6,24 @@ import (
 	"path/filepath"
 	"testing"
 
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetDefault(t *testing.T) {
 	jail := t.TempDir()
-	env := std.NewTestEnv(jail, "", "")
+	env := toolkit.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set("EXIST", "val"))
 
-	assert.Equal(t, "val", std.GetDefault(env, "EXIST", "other"))
+	assert.Equal(t, "val", toolkit.GetDefault(env, "EXIST", "other"))
 
 	// empty value should fall back to provided default
 	require.NoError(t, env.Set("EMPTY", ""))
-	assert.Equal(t, "def", std.GetDefault(env, "EMPTY", "def"))
+	assert.Equal(t, "def", toolkit.GetDefault(env, "EMPTY", "def"))
 
 	// missing key should return fallback
-	assert.Equal(t, "fallback", std.GetDefault(env, "MISSING", "fallback"))
+	assert.Equal(t, "fallback", toolkit.GetDefault(env, "MISSING", "fallback"))
 }
 
 // Ensure changing the test MapEnv does not modify the real process environment.
@@ -45,7 +45,7 @@ func TestTestEnvDoesNotChangeOsEnv(t *testing.T) {
 
 	// Create a test env and change the same key in the MapEnv.
 	jail := t.TempDir()
-	env := std.NewTestEnv(jail, "", "")
+	env := toolkit.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set(key, "test-value"))
 
 	// The real OS environment should remain unchanged.
@@ -59,18 +59,18 @@ func TestTestEnvDoesNotChangeOsEnv(t *testing.T) {
 func TestExpandEnv(t *testing.T) {
 	jail := t.TempDir()
 	// Do not run this test in parallel because it temporarily sets real OS env.
-	env := std.NewTestEnv(jail, "", "")
+	env := toolkit.NewTestEnv(jail, "", "")
 	require.NoError(t, env.Set("FOO", "bar"))
 	require.NoError(t, env.Set("EMPTY", ""))
 
-	ctx := std.WithEnv(context.Background(), env)
+	ctx := toolkit.WithEnv(context.Background(), env)
 
 	// Simple $VAR expansion
-	got := std.ExpandEnv(ctx, "$FOO/baz")
+	got := toolkit.ExpandEnv(ctx, "$FOO/baz")
 	assert.Equal(t, filepath.Join("bar", "baz"), got)
 
 	// Braced form, missing and empty values
-	got2 := std.ExpandEnv(ctx, "${FOO}_${MISSING}_${EMPTY}")
+	got2 := toolkit.ExpandEnv(ctx, "${FOO}_${MISSING}_${EMPTY}")
 	assert.Equal(t, "bar__", got2)
 
 	// When no Env is provided in the context, ExpandEnv should fall back to the
@@ -86,6 +86,6 @@ func TestExpandEnv(t *testing.T) {
 	})
 	require.NoError(t, os.Setenv(oskey, "osval"))
 
-	got3 := std.ExpandEnv(context.Background(), "$"+oskey)
+	got3 := toolkit.ExpandEnv(context.Background(), "$"+oskey)
 	assert.Equal(t, "osval", got3)
 }

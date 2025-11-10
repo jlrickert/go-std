@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jlrickert/go-std/clock"
-	"github.com/jlrickert/go-std/mylog"
-	tu "github.com/jlrickert/go-std/sandbox"
-	std "github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	tu "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +21,7 @@ func TestSandbox_BasicSetup(t *testing.T) {
 	ctx := sandbox.Context()
 	require.NotNil(t, ctx)
 
-	env := std.EnvFromContext(ctx)
+	env := toolkit.EnvFromContext(ctx)
 	require.NotNil(t, env)
 
 	logger := mylog.LoggerFromContext(ctx)
@@ -54,7 +54,7 @@ func TestSandbox_ContextCarriesStream(t *testing.T) {
 	sandbox := tu.NewSandbox(t, nil)
 
 	ctx := sandbox.Context()
-	stream := std.StreamFromContext(ctx)
+	stream := toolkit.StreamFromContext(ctx)
 	require.NotNil(t, stream)
 	require.NotNil(t, stream.In)
 	require.NotNil(t, stream.Out)
@@ -69,7 +69,7 @@ func TestSandbox_ContextCarriesHasher(t *testing.T) {
 	sandbox := tu.NewSandbox(t, nil)
 
 	ctx := sandbox.Context()
-	hasher := std.HasherFromContext(ctx)
+	hasher := toolkit.HasherFromContext(ctx)
 	require.NotNil(t, hasher)
 	require.NotEmpty(t, hasher.Hash([]byte("test")))
 }
@@ -97,7 +97,7 @@ func TestSandbox_ContextCarriesEnv(t *testing.T) {
 	sandbox := tu.NewSandbox(t, nil)
 
 	ctx := sandbox.Context()
-	env := std.EnvFromContext(ctx)
+	env := toolkit.EnvFromContext(ctx)
 	require.NotNil(t, env)
 
 	home, err := env.GetHome()
@@ -125,8 +125,8 @@ func TestSandbox_MultipleContexts(t *testing.T) {
 	sandbox1 := tu.NewSandbox(t, nil, tu.WithEnv("TEST_KEY", "value1"))
 	sandbox2 := tu.NewSandbox(t, nil, tu.WithEnv("TEST_KEY", "value2"))
 
-	env1 := std.EnvFromContext(sandbox1.Context())
-	env2 := std.EnvFromContext(sandbox2.Context())
+	env1 := toolkit.EnvFromContext(sandbox1.Context())
+	env2 := toolkit.EnvFromContext(sandbox2.Context())
 
 	require.Equal(t, "value1", env1.Get("TEST_KEY"))
 	require.Equal(t, "value2", env2.Get("TEST_KEY"))
@@ -140,11 +140,11 @@ func TestSandbox_ContextPersistsAcrossOperations(t *testing.T) {
 	sandbox := tu.NewSandbox(t, nil)
 	ctx := sandbox.Context()
 
-	env := std.EnvFromContext(ctx)
+	env := toolkit.EnvFromContext(ctx)
 	err := env.Set("PERSIST_KEY", "persist_value")
 	require.NoError(t, err)
 
-	env2 := std.EnvFromContext(ctx)
+	env2 := toolkit.EnvFromContext(ctx)
 	require.Equal(t, "persist_value", env2.Get("PERSIST_KEY"))
 }
 
@@ -158,7 +158,7 @@ func TestSandbox_ContextWithCustomOptions(t *testing.T) {
 		tu.WithEnv("DEBUG", "true"),
 	)
 
-	env := std.EnvFromContext(sandbox.Context())
+	env := toolkit.EnvFromContext(sandbox.Context())
 	require.Equal(t, "custom_value", env.Get("CUSTOM_VAR"))
 	require.Equal(t, "true", env.Get("DEBUG"))
 }
