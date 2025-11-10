@@ -1,3 +1,12 @@
+## [0.1.2] - 2025-11-10
+
+### 🐛 Bug Fixes
+
+- Resolve AtomicWriteFile jail path handling in TestEnv
+
+### 📚 Documentation
+
+- *(release)* Update changelog for v0.1.1
 ## [0.1.1] - 2025-11-09
 
 ### 🐛 Bug Fixes
