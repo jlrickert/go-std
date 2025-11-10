@@ -7,7 +7,7 @@ import (
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 )
 
-//go:embed data/**
+//go:embed all:data/**
 var testdata embed.FS
 
 func NewSandbox(t *testing.T, opts ...testutils.SandboxOption) *testutils.Sandbox {

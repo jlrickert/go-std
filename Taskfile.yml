@@ -4,23 +4,17 @@ version: "3"
 tasks:
   test:
     cmds:
-      - go test ./mylog/ ./project ./sandbox/ ./clock/ ./toolkit/ {{.CLI_ARGS}}
+      - go test ./... {{.CLI_ARGS}}
     sources:
-      - mylog/**/*.go
-      - pkg/**/*.go
-      - project/**/*.go
-      - sandbox/**/*.go
-      - clock/**/*.go
-      - toolkit/**/*.go
+      - ./**/*.go
     silent: true
   release:
     cmds:
       - echo "Running tests..."
       - go test ./...
-      - version=$(git-cliff --bumped-version)
-      - git-cliff --output CHANGELOG.md --tag $version
+      - git-cliff --output CHANGELOG.md --tag $(git-cliff --bumped-version)
       - git add CHANGELOG.md
-      - 'git commit -m "docs(release): update changelog for $version"'
-      - git tag $version
+      - 'git commit -m "docs(release): update changelog for $(git-cliff --bumped-version)"'
+      - git tag $(git-cliff --bumped-version)
       - git push origin HEAD --tags
       - echo "Release process complete"

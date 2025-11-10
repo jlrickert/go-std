@@ -266,3 +266,10 @@ func (p *Process) Run(ctx context.Context) *ProcessResult {
 
 	return result
 }
+
+func (p *Process) RunWithIO(ctx context.Context, r io.Reader) *ProcessResult {
+	p.mu.Lock()
+	p.in = r
+	p.mu.Unlock()
+	return p.Run(ctx)
+}

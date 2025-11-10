@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:embed data/**
+//go:embed all:data/**
 var testdata embed.FS
 
 // TestFixture_WithEnvironment verifies environment variable setup
