@@ -64,7 +64,6 @@ func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileM
 		slog.String("envType", env.Name()),
 		slog.String("pwd", env.Get("PWD")),
 		slog.String("rel", rel),
-		slog.Any("error", err),
 	)
 
 	return nil
