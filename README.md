@@ -33,12 +33,12 @@ Main package with filesystem, environment, and I/O utilities:
 - **Utilities**: File operations, editor launching, environment inspection, user
   path helpers.
 
-### Project (`project`)
+### App Context (`appctx`)
 
 Application root and configuration management:
 
-- **Project struct**: Manages repository root and platform-scoped paths (config,
-  data, state, cache).
+- **AppContext struct**: Manages repository root and platform-scoped paths
+  (config, data, state, cache).
 - **Options**: `WithRoot()`, `WithAutoRootDetect()` for git repository
   detection, and per-path customization.
 
@@ -121,11 +121,11 @@ ctx := mylog.WithLogger(context.Background(), lg)
 // use ctx in code under test and assert logs in `th`
 ```
 
-### Project helper
+### App Context helper
 
 ```go
-p, err := project.NewProject(ctx, "myapp",
-  project.WithRoot("/path/to/repo"))
+aCtx, err := appctx.NewAppContext(ctx, "myapp",
+  aCtx.WithRoot("/path/to/repo"))
 cfgRoot, _ := p.ConfigRoot(ctx)
 // cfgRoot == <user-config-dir>/myapp
 ```
@@ -161,7 +161,7 @@ with a short description and tests for new behavior.
 ## Files to inspect
 
 - `toolkit/` - core helpers (env, filesystem, streams, paths)
-- `project/` - project path helpers
+- `appctx/` - app path helpers
 - `mylog/` - structured logging utilities
 - `clock/` - time abstractions
 - `sandbox/` - comprehensive test setup

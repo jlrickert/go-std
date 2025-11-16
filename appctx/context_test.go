@@ -4,30 +4,28 @@ import (
 	"path/filepath"
 	"testing"
 
-	proj "github.com/jlrickert/cli-toolkit/project"
+	proj "github.com/jlrickert/cli-toolkit/appctx"
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewProjectManualRootDefaults(t *testing.T) {
+func TestNewAppContextManualRootDefaults(t *testing.T) {
 	t.Parallel()
 
 	// Create fixture and populate with the example repo under "repo".
 	f := NewSandbox(t,
 		testutils.WithFixture("basic", "repo"),
-		testutils.WithWd("repo"),
+		testutils.WithWd("repo/basic"),
 	)
 
 	// Build the project manually without using NewProject. Set the root to the
 	// requested absolute path.
 	appname := "myapp"
 	manualRoot := filepath.FromSlash("/home/testuser/repo/basic")
-	p := &proj.Project{
-		Appname: appname,
-		Root:    manualRoot,
-	}
+	p, err := proj.NewAppContext(f.Context(), appname)
+	require.NoError(t, err)
 
 	// Root should be exactly what we set.
 	assert.Equal(t, manualRoot, p.Root)
@@ -37,28 +35,20 @@ func TestNewProjectManualRootDefaults(t *testing.T) {
 	ucfg, err := toolkit.UserConfigPath(f.Context())
 	require.NoError(t, err)
 	expectedCfg := filepath.Join(ucfg, appname)
-	cfg, err := p.ConfigRoot(f.Context())
-	require.NoError(t, err)
-	assert.Equal(t, expectedCfg, cfg)
+	assert.Equal(t, expectedCfg, p.ConfigRoot)
 
 	udata, err := toolkit.UserDataPath(f.Context())
 	require.NoError(t, err)
 	expectedData := filepath.Join(udata, appname)
-	data, err := p.DataRoot(f.Context())
-	require.NoError(t, err)
-	assert.Equal(t, expectedData, data)
+	assert.Equal(t, expectedData, p.DataRoot)
 
 	ustate, err := toolkit.UserStatePath(f.Context())
 	require.NoError(t, err)
 	expectedState := filepath.Join(ustate, appname)
-	st, err := p.StateRoot(f.Context())
-	require.NoError(t, err)
-	assert.Equal(t, expectedState, st)
+	assert.Equal(t, expectedState, p.StateRoot)
 
 	ucache, err := toolkit.UserCachePath(f.Context())
 	require.NoError(t, err)
 	expectedCache := filepath.Join(ucache, appname)
-	ca, err := p.CacheRoot(f.Context())
-	require.NoError(t, err)
-	assert.Equal(t, expectedCache, ca)
+	assert.Equal(t, expectedCache, p.CacheRoot)
 }
