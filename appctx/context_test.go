@@ -24,7 +24,7 @@ func TestNewAppContextManualRootDefaults(t *testing.T) {
 	// requested absolute path.
 	appname := "myapp"
 	manualRoot := filepath.FromSlash("/home/testuser/repo/basic")
-	p, err := proj.NewAppContext(f.Context(), appname)
+	p, err := proj.NewAppContext(f.Context(), manualRoot, appname)
 	require.NoError(t, err)
 
 	// Root should be exactly what we set.

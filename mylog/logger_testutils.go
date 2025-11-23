@@ -51,6 +51,7 @@ type TestHandler struct {
 	mu      sync.Mutex
 	Entries []LoggedEntry
 	T       testingT
+	attrs   []slog.Attr
 }
 
 // NewTestHandler creates an empty TestHandler. Optionally pass a testing.T
@@ -77,10 +78,18 @@ func (h *TestHandler) Handle(ctx context.Context, r slog.Record) error {
 		Source: r.Source(),
 		PC:     r.PC,
 	}
+
+	// Add stored attributes from WithAttrs
+	for _, attr := range h.attrs {
+		e.Attrs[attr.Key] = attr.Value.Any()
+	}
+
+	// Add attributes from the record
 	r.Attrs(func(a slog.Attr) bool {
 		e.Attrs[a.Key] = a.Value.Any()
 		return true
 	})
+
 	h.mu.Lock()
 	h.Entries = append(h.Entries, e)
 	h.mu.Unlock()
@@ -94,16 +103,25 @@ func (h *TestHandler) Handle(ctx context.Context, r slog.Record) error {
 	return nil
 }
 
-// WithAttrs returns the handler unchanged. Attributes are captured per record
-// in Handle, so no additional state is needed here.
-func (h *TestHandler) WithAttrs(_ []slog.Attr) slog.Handler {
-	return h
+// WithAttrs returns a new handler with the provided attributes appended to
+// subsequent log entries.
+func (h *TestHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newAttrs := make([]slog.Attr, len(h.attrs)+len(attrs))
+	copy(newAttrs, h.attrs)
+	copy(newAttrs[len(h.attrs):], attrs)
+	return &TestHandler{
+		T:     h.T,
+		attrs: newAttrs,
+	}
 }
 
-// WithGroup returns the handler unchanged. Grouping is not modeled by this
-// simple test handler.
+// WithGroup returns a new handler. Grouping is not directly modeled, but the
+// handler is returned as a new instance to maintain consistency with slog.Handler.
 func (h *TestHandler) WithGroup(_ string) slog.Handler {
-	return h
+	return &TestHandler{
+		T:     h.T,
+		attrs: h.attrs,
+	}
 }
 
 // NewTestLogger returns a *slog.Logger that writes to a TestHandler and the

@@ -41,8 +41,7 @@ func NewGitAppContext(ctx context.Context, appname string) (*AppContext, error) 
 		return nil, err
 	}
 	root := FindGitRoot(ctx, cwd)
-	aCtx, err := NewAppContext(ctx, appname)
-	aCtx.Root = root
+	aCtx, err := NewAppContext(ctx, root, appname)
 	return aCtx, err
 }
 
@@ -54,16 +53,10 @@ func NewGitAppContext(ctx context.Context, appname string) (*AppContext, error) 
 //   - If Root is not set it is inferred from Env.Getwd().
 //   - ConfigRoot, DataRoot, StateRoot and CacheRoot use the corresponding
 //     user-scoped platform paths and are joined with DefaultAppName.
-func NewAppContext(ctx context.Context, appname string) (*AppContext, error) {
+func NewAppContext(ctx context.Context, root, appname string) (*AppContext, error) {
 	p := &AppContext{Appname: appname}
 
-	env := toolkit.EnvFromContext(ctx)
-
-	wd, err := env.Getwd()
-	if err != nil {
-		return p, fmt.Errorf("unable to infer app context: %w", err)
-	}
-	p.Root = wd
+	p.Root = filepath.Clean(root)
 
 	if path, err := toolkit.UserConfigPath(ctx); err != nil {
 		return nil, fmt.Errorf(

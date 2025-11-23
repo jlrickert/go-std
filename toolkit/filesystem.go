@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 
 	"log/slog"
-
-	"github.com/jlrickert/cli-toolkit/mylog"
 )
 
 // FileSystem defines the contract for filesystem operations.
@@ -42,7 +40,7 @@ type FileSystem interface {
 
 func AtomicWriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 
 	err := env.AtomicWriteFile(rel, data, perm)
 	if err != nil {
@@ -129,31 +127,8 @@ func AbsPath(ctx context.Context, rel string) string {
 // evaluation fails the absolute path returned by AbsPath is returned instead.
 func ResolvePath(ctx context.Context, rel string, follow bool) (string, error) {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
 
-	path, err := env.ResolvePath(rel, follow)
-	if err != nil {
-		lg.Log(
-			ctx,
-			slog.LevelError,
-			"ResolvePath failed",
-			slog.String("envType", env.Name()),
-			slog.String("pwd", env.Get("PWD")),
-			slog.String("rel", rel),
-			slog.Any("error", err),
-		)
-		return path, err
-
-	}
-	lg.Log(
-		ctx,
-		slog.LevelDebug,
-		"ResolvePath succeed",
-		slog.String("envType", env.Name()),
-		slog.String("pwd", env.Get("PWD")),
-		slog.String("rel", rel),
-	)
-	return path, nil
+	return env.ResolvePath(rel, follow)
 }
 
 // RelativePath returns a path relative to basepath. If path is empty an
@@ -175,7 +150,7 @@ func RelativePath(ctx context.Context, basepath, path string) string {
 // filesystem view can be controlled by an injected TestEnv.
 func ReadFile(ctx context.Context, rel string) ([]byte, error) {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 
 	b, err := env.ReadFile(rel)
 	if err != nil {
@@ -204,7 +179,7 @@ func ReadFile(ctx context.Context, rel string) ([]byte, error) {
 // argument is the file mode to apply to the written file.
 func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 	path, err := ExpandPath(ctx, rel)
 	if err != nil {
 		return err
@@ -248,7 +223,7 @@ func WriteFile(ctx context.Context, rel string, data []byte, perm os.FileMode) e
 // MkdirAll is used.
 func Mkdir(ctx context.Context, rel string, perm os.FileMode, all bool) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 	if err := env.Mkdir(rel, perm, all); err != nil {
 		lg.Log(
 			ctx,
@@ -279,7 +254,7 @@ func Mkdir(ctx context.Context, rel string, perm os.FileMode, all bool) error {
 // all is true RemoveAll is used.
 func Remove(ctx context.Context, rel string, all bool) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 
 	if err := env.Remove(rel, all); err != nil {
 		lg.Log(
@@ -309,7 +284,7 @@ func Remove(ctx context.Context, rel string, all bool) error {
 // Rename renames (moves) a file or directory using the Env stored in ctx.
 func Rename(ctx context.Context, src, dst string) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 	if err := env.Rename(src, dst); err != nil {
 		lg.Log(
 			ctx,
@@ -339,7 +314,7 @@ func Rename(ctx context.Context, src, dst string) error {
 // ExpandPath with the Env from ctx before calling os.Stat.
 func Stat(ctx context.Context, rel string, followSymlinks bool) (os.FileInfo, error) {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 	info, err := env.Stat(rel, followSymlinks)
 	if err != nil {
 		lg.Log(ctx, slog.LevelError, "Stat failed",
@@ -363,7 +338,7 @@ func Stat(ctx context.Context, rel string, followSymlinks bool) (os.FileInfo, er
 // os.ReadDir.
 func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 	entries, err := env.ReadDir(rel)
 	if err != nil {
 		lg.Log(
@@ -397,7 +372,7 @@ func ReadDir(ctx context.Context, rel string) ([]os.DirEntry, error) {
 // error is returned.
 func Symlink(ctx context.Context, oldname, newname string) error {
 	env := EnvFromContext(ctx)
-	lg := mylog.LoggerFromContext(ctx)
+	lg := getTookitLogger(ctx)
 
 	if err := env.Symlink(oldname, newname); err != nil {
 		lg.Log(

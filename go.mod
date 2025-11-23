@@ -2,7 +2,7 @@ module github.com/jlrickert/cli-toolkit
 
 go 1.25.0
 
-require golang.org/x/term v0.36.0
+require golang.org/x/term v0.37.0
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
